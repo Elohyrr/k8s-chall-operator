@@ -470,19 +470,27 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeError writes an error response
-func (h *Handler) writeError(w http.ResponseWriter, status int, error, message string) {
+func (h *Handler) writeError(w http.ResponseWriter, status int, errStr, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(ErrorResponse{
+	if err := json.NewEncoder(w).Encode(ErrorResponse{
 		Error:   error,
 		Message: message,
-	})
+	}); err != nil {
+		log.Printf("handlers: encode responses: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // writeInstanceResponse writes an instance response
 func (h *Handler) writeInstanceResponse(w http.ResponseWriter, instance *ctfv1alpha1.ChallengeInstance) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(h.buildInstanceResponse(instance))
+	if err := json.NewEncoder(w).Encode(h.buildInstanceResponse(instance)); err != nil {
+		log.Printf("handlers: encode responses: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // buildInstanceResponse creates an InstanceResponse from a ChallengeInstance
