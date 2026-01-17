@@ -6,27 +6,35 @@ Replaces `chall-manager` with a cloud-native approach using CRDs and controllers
 
 ---
 
-## 🎯 Objectif
+## 🎯 Features
 
-Déployer des challenges CTF dynamiques (1 instance par user/team) avec:
-- ✅ Flags uniques par instance
-- ✅ Lifecycle management (création, suppression)
-- ✅ API compatible CTFd
-- ✅ Architecture cloud-native (CRDs)
-- ❌ Plus de Pulumi timeout!
+- ✅ **Flags uniques** par instance (template Go)
+- ✅ **Lifecycle management** (création, expiration auto, suppression)
+- ✅ **API compatible CTFd**
+- ✅ **Auth Proxy sidecar** (vérifie l'identité utilisateur via OAuth2)
+- ✅ **AttackBox** (terminal web ttyd pour chaque instance)
+- ✅ **Ingress** avec OAuth2 annotations
+- ✅ **NetworkPolicy** pour isolation des attackbox
+- ✅ **Janitor** (cleanup auto à expiration ou après flag validé)
+- ✅ **< 30s** pour créer une instance (vs 10+ min avec Pulumi)
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-CTFd → API Gateway (port 8080) → CRDs → Operator → Deployments + Services
+CTFd → API Gateway (port 8080) → ChallengeInstance CRD → Controller → K8s Resources
+                                        ↓
+                                 Challenge CRD (template)
 ```
 
-**Composants:**
-1. **CRDs**: `Challenge`, `ChallengeInstance`
-2. **Operator**: Reconcile loop qui crée Deployment + Service
-3. **API Gateway**: API REST compatible CTFd
+**Ressources créées par instance:**
+- `Deployment` (challenge + auth-proxy sidecar)
+- `Service` (ClusterIP/NodePort/LoadBalancer)
+- `Deployment` AttackBox (si activé)
+- `Service` AttackBox (si activé)
+- `Ingress` (si `exposeType: Ingress`)
+- `NetworkPolicy` (si activé)
 
 ---
 
@@ -62,74 +70,130 @@ kubectl get pods -n ctf-operator-system
 
 ## 🚀 Quick Start
 
-### 1. Créer un Challenge
+### 1. Créer un Challenge (template)
+
+Le Challenge CRD définit **comment** déployer un challenge. Le `metadata.name` est l'ID utilisé par l'API.
+
+#### Challenge Simple (NodePort)
 
 ```yaml
-# example-challenge.yaml
-apiVersion: ctf.io/v1alpha1
+apiVersion: ctf.ctf.io/v1alpha1
 kind: Challenge
 metadata:
-  name: web-exploit
+  name: simple-web        # ← C'est le challenge_id pour l'API
   namespace: ctf-instances
 spec:
-  id: "1"
+  id: "simple-web"
   scenario:
     image: nginx:alpine
     port: 80
-    exposeType: NodePort
-    flagTemplate: "FLAG{web_{{.SourceID}}_{{.RandomString}}}"
-    env:
-    - name: CUSTOM_VAR
-      value: "test"
+    exposeType: NodePort  # NodePort, LoadBalancer, ou Ingress
+    flagTemplate: 'FLAG{{"{"}}{{.ChallengeID}}_{{.RandomString}}{{"}"}}'
     resources:
       limits:
-        cpu: 500m
-        memory: 512Mi
-      requests:
         cpu: 100m
         memory: 128Mi
+  timeout: 300  # secondes avant expiration
+```
+
+#### Challenge Complet (AuthProxy + AttackBox + Ingress + NetworkPolicy)
+
+```yaml
+apiVersion: ctf.ctf.io/v1alpha1
+kind: Challenge
+metadata:
+  name: full-stack
+  namespace: ctf-instances
+spec:
+  id: "full-stack"
+  scenario:
+    image: my-vuln-app:latest
+    port: 8080
+    exposeType: Ingress
+    flagTemplate: 'CTF{{"{"}}{{.InstanceID}}_{{.SourceID}}{{"}"}}'
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+    
+    # Auth Proxy - vérifie X-Auth-Request-Email == user
+    authProxy:
+      enabled: true
+      image: ctf-auth-proxy:simple
+    
+    # AttackBox - terminal web pour l'utilisateur
+    attackBox:
+      enabled: true
+      image: attack-box:latest
+      port: 7681
+    
+    # Ingress avec OAuth2
+    ingress:
+      enabled: true
+      hostTemplate: "{{.InstanceName}}.{{.ChallengeID}}.ctf.local"
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/auth-url: "http://oauth2-proxy.svc/oauth2/auth"
+        nginx.ingress.kubernetes.io/auth-signin: "http://auth.ctf.local/oauth2/start"
+    
+    # NetworkPolicy pour isoler l'attackbox
+    networkPolicy:
+      enabled: true
+      allowDNS: true
+      allowInternet: true
   timeout: 600
 ```
 
 ```bash
-kubectl apply -f example-challenge.yaml
+kubectl apply -f challenge.yaml
 ```
 
 ### 2. Créer une Instance via API
 
 ```bash
 # Port-forward API gateway
-kubectl port-forward -n ctf-operator-system svc/api-gateway 8080:8080
+kubectl port-forward -n chall-operator-system svc/api-gateway 8080:8080
 
-# Créer instance
+# Créer instance (challenge_id = metadata.name du Challenge)
 curl -X POST http://localhost:8080/api/v1/instance \
   -H "Content-Type: application/json" \
   -d '{
-    "challenge_id": "1",
-    "source_id": "user-123"
+    "challenge_id": "simple-web",
+    "source_id": "user@ctf.local"
   }'
+```
 
-# Response
+**Response:**
+```json
 {
-  "challenge_id": "1",
-  "source_id": "user-123",
-  "connection_info": "nc <node-ip> <node-port>",
-  "flags": ["FLAG{web_user-123_a1b2c3d4e5f6...}"],
-  "since": "2025-01-17T12:00:00Z",
-  "until": "2025-01-17T12:10:00Z"
+  "challenge_id": "simple-web",
+  "source_id": "user@ctf.local",
+  "connection_info": "nc localhost 31155",
+  "flags": ["FLAG{simple-web_a1b2c3d4e5f6}"],
+  "since": "2026-01-17T22:00:00Z",
+  "until": "2026-01-17T22:05:00Z"
 }
 ```
 
-### 3. Récupérer une Instance
+### 3. Autres endpoints API
 
 ```bash
-curl http://localhost:8080/api/v1/instance/1/user-123
-```
+# Récupérer une instance
+curl http://localhost:8080/api/v1/instance/simple-web/user@ctf.local
 
-### 4. Supprimer une Instance
+# Lister les instances d'un user
+curl "http://localhost:8080/api/v1/instance?source_id=user@ctf.local"
 
-```bash
-curl -X DELETE http://localhost:8080/api/v1/instance/1/user-123
+# Valider un flag (déclenche cleanup auto)
+curl -X POST http://localhost:8080/api/v1/instance/simple-web/user@ctf.local/validate \
+  -H "Content-Type: application/json" \
+  -d '{"flag": "FLAG{simple-web_a1b2c3d4e5f6}"}'
+
+# Renouveler une instance (reset timeout)
+curl -X POST http://localhost:8080/api/v1/instance/simple-web/user@ctf.local/renew
+
+# Supprimer une instance
+curl -X DELETE http://localhost:8080/api/v1/instance/simple-web/user@ctf.local
 ```
 
 ---
@@ -320,30 +384,31 @@ kubectl logs -n ctf-operator-system -l app=api-gateway
 
 ## 📝 Roadmap
 
-### MVP (Semaine 1) ✅
+### MVP ✅
 - [x] CRDs Challenge + ChallengeInstance
 - [x] Controller basique
-- [x] Flag generation
-- [x] API Gateway
+- [x] Flag generation (Go templates)
+- [x] API Gateway compatible CTFd
 - [x] Deployment + Service creation
 
-### Phase 2 (Semaine 2)
-- [ ] Instance pooling
-- [ ] Janitor controller (cleanup auto)
-- [ ] Renewal mechanism
+### Phase 2 ✅
+- [x] Janitor controller (expiration auto)
+- [x] Flag validation → cleanup auto
+- [x] Renewal mechanism
+- [x] Auth Proxy sidecar (port 8888)
+
+### Phase 3 ✅
+- [x] NetworkPolicy pour AttackBox
+- [x] AttackBox (terminal web ttyd)
+- [x] Multi-container (challenge + auth-proxy)
+- [x] Ingress support avec OAuth2 annotations
+
+### Phase 4 (TODO)
 - [ ] Metrics Prometheus
-
-### Phase 3 (Semaine 3)
-- [ ] Cilium Network Policies
-- [ ] AttackBox CRD
-- [ ] Multi-container challenges
-- [ ] Ingress support
-
-### Phase 4 (Semaine 4)
-- [ ] HA operator
 - [ ] Webhooks validation
-- [ ] E2E tests
+- [ ] E2E tests automatisés
 - [ ] Production hardening
+- [ ] Hot Proxy integration
 
 ---
 
@@ -385,6 +450,18 @@ MIT License - See LICENSE file
 
 ---
 
-**Status:** ✅ MVP Fonctionnel  
+**Status:** ✅ Full Stack Fonctionnel (MVP + Auth + AttackBox + Ingress + NetworkPolicy)  
 **Tested:** 17 janvier 2026 sur Kind cluster  
 **Maintainer:** @leo
+
+---
+
+## ⚠️ Important: exposeType et Ingress
+
+| `exposeType` | Service Type | Ingress créé ? | Cas d'usage |
+|--------------|--------------|----------------|-------------|
+| `NodePort` | NodePort | ❌ Non | Dev local, accès direct via port |
+| `LoadBalancer` | LoadBalancer | ❌ Non | Cloud avec LB externe |
+| `Ingress` | ClusterIP | ✅ Oui | Production avec nginx-ingress |
+
+**L'Ingress n'est créé que si `exposeType: Ingress`** dans le Challenge spec.
