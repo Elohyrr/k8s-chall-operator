@@ -385,6 +385,6 @@ MIT License - See LICENSE file
 
 ---
 
-**Status:** MVP en développement  
-**Deadline:** Lundi 20 janvier 2025  
+**Status:** ✅ MVP Fonctionnel  
+**Tested:** 17 janvier 2026 sur Kind cluster  
 **Maintainer:** @leo
