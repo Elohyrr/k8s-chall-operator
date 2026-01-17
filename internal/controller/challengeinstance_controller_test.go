@@ -51,7 +51,12 @@ var _ = Describe("ChallengeInstance Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: ctfv1alpha1.ChallengeInstanceSpec{
+						ChallengeID:   "test-challenge",
+						SourceID:      "test-user",
+						ChallengeName: "test-challenge",
+						Since:         metav1.Now(),
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}

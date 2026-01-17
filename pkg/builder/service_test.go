@@ -66,8 +66,8 @@ func TestBuildService_NodePort(t *testing.T) {
 		t.Fatalf("Expected 1 port, got %d", len(service.Spec.Ports))
 	}
 
-	if service.Spec.Ports[0].Port != 8080 {
-		t.Errorf("Expected port 8080, got %d", service.Spec.Ports[0].Port)
+	if service.Spec.Ports[0].TargetPort.IntVal != 8080 {
+		t.Errorf("Expected target port 8080, got %d", service.Spec.Ports[0].TargetPort.IntVal)
 	}
 
 	// Check selector
