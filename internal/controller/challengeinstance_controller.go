@@ -338,35 +338,37 @@ func (r *ChallengeInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // Helper function to create a pointer to a string
-func ptr[T any](v T) *T {
-	return &v
-}
+// useless
+//func ptr[T any](v T) *T {
+//	return &v
+//}
 
 // formatConnectionInfo creates a connection string based on service type
-func formatConnectionInfo(service *corev1.Service, nodeIP string) string {
-	if service == nil || len(service.Spec.Ports) == 0 {
-		return ""
-	}
-
-	port := service.Spec.Ports[0]
-
-	switch service.Spec.Type {
-	case corev1.ServiceTypeNodePort:
-		if port.NodePort > 0 {
-			return fmt.Sprintf("nc %s %d", nodeIP, port.NodePort)
-		}
-	case corev1.ServiceTypeLoadBalancer:
-		if len(service.Status.LoadBalancer.Ingress) > 0 {
-			ingress := service.Status.LoadBalancer.Ingress[0]
-			host := ingress.IP
-			if host == "" {
-				host = ingress.Hostname
-			}
-			if host != "" {
-				return fmt.Sprintf("nc %s %d", host, port.Port)
-			}
-		}
-	}
-
-	return ""
-}
+//useless
+//func formatConnectionInfo(service *corev1.Service, nodeIP string) string {
+//	if service == nil || len(service.Spec.Ports) == 0 {
+//		return ""
+//	}
+//
+//	port := service.Spec.Ports[0]
+//
+//	switch service.Spec.Type {
+//	case corev1.ServiceTypeNodePort:
+//		if port.NodePort > 0 {
+//			return fmt.Sprintf("nc %s %d", nodeIP, port.NodePort)
+//		}
+//	case corev1.ServiceTypeLoadBalancer:
+//		if len(service.Status.LoadBalancer.Ingress) > 0 {
+//			ingress := service.Status.LoadBalancer.Ingress[0]
+//			host := ingress.IP
+//			if host == "" {
+//				host = ingress.Hostname
+//			}
+//			if host != "" {
+//				return fmt.Sprintf("nc %s %d", host, port.Port)
+//			}
+//		}
+//	}
+//
+//	return ""
+//}

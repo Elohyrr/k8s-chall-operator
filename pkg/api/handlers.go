@@ -336,6 +336,7 @@ func (h *Handler) ListInstances(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("\n"))
 	}
 }
+}
 
 // ValidateFlagRequest represents the request body for flag validation
 type ValidateFlagRequest struct {
@@ -401,10 +402,13 @@ func (h *Handler) ValidateFlag(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Flag validated for instance %s, marked for deletion", instanceName)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"valid":   true,
 		"message": "Flag correct! Instance will be cleaned up.",
-	})
+	}); err != nil {
+		log.Printf("handlers: encode responses: %v", err)
+    	http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
 }
 
 // RenewInstance handles POST /api/v1/instance/{challengeId}/{sourceId}/renew
@@ -458,7 +462,11 @@ func (h *Handler) RenewInstance(w http.ResponseWriter, r *http.Request) {
 // Health handles GET /health
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		log.Printf("handlers: encode responses: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // writeError writes an error response
