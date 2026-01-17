@@ -43,7 +43,23 @@ var _ = Describe("ChallengeInstance Controller", func() {
 		challengeinstance := &ctfv1alpha1.ChallengeInstance{}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind ChallengeInstance")
+		By("creating the Challenge resource")
+		challenge := &ctfv1alpha1.Challenge{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-challenge",
+				Namespace: "default",
+			},
+			Spec: ctfv1alpha1.ChallengeSpec{
+				ID: "test-challenge",
+				Scenario: ctfv1alpha1.ChallengeScenarioSpec{
+					Image:      "nginx:latest",
+					Port:       8080,
+					ExposeType: "NodePort",
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, challenge)).To(Succeed())
+
 			err := k8sClient.Get(ctx, typeNamespacedName, challengeinstance)
 			if err != nil && errors.IsNotFound(err) {
 				resource := &ctfv1alpha1.ChallengeInstance{
@@ -70,7 +86,12 @@ var _ = Describe("ChallengeInstance Controller", func() {
 
 			By("Cleanup the specific resource instance ChallengeInstance")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
+		By("Cleanup the Challenge resource")
+		challenge := &ctfv1alpha1.Challenge{}
+		err = k8sClient.Get(ctx, types.NamespacedName{Name: "test-challenge", Namespace: "default"}, challenge)
+		if err == nil {
+			Expect(k8sClient.Delete(ctx, challenge)).To(Succeed())
+		}		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &ChallengeInstanceReconciler{
