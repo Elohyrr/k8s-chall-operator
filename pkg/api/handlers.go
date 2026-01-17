@@ -474,7 +474,7 @@ func (h *Handler) writeError(w http.ResponseWriter, status int, errStr, message 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(ErrorResponse{
-		Error:   error,
+		Error:   errStr,
 		Message: message,
 	}); err != nil {
 		log.Printf("handlers: encode responses: %v", err)
