@@ -18,46 +18,248 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	ctfv1alpha1 "github.com/leo/chall-operator/api/v1alpha1"
+	"github.com/leo/chall-operator/pkg/builder"
+	"github.com/leo/chall-operator/pkg/flaggen"
 )
 
 // ChallengeInstanceReconciler reconciles a ChallengeInstance object
 type ChallengeInstanceReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	NodeIP string // Node IP for connection info (set via env or config)
 }
 
 // +kubebuilder:rbac:groups=ctf.ctf.io,resources=challengeinstances,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=ctf.ctf.io,resources=challengeinstances/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ctf.ctf.io,resources=challengeinstances/finalizers,verbs=update
+// +kubebuilder:rbac:groups=ctf.ctf.io,resources=challenges,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the ChallengeInstance object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.22.4/pkg/reconcile
+// Reconcile handles the reconciliation loop for ChallengeInstance resources
 func (r *ChallengeInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// 1. Fetch the ChallengeInstance
+	instance := &ctfv1alpha1.ChallengeInstance{}
+	if err := r.Get(ctx, req.NamespacedName, instance); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("ChallengeInstance not found, likely deleted")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "Failed to get ChallengeInstance")
+		return ctrl.Result{}, err
+	}
 
-	return ctrl.Result{}, nil
+	// 2. Check expiry - delete if expired
+	if instance.Spec.Until != nil && time.Now().After(instance.Spec.Until.Time) {
+		log.Info("Instance expired, deleting", "instance", instance.Name)
+		if err := r.Delete(ctx, instance); err != nil {
+			log.Error(err, "Failed to delete expired instance")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// 3. Fetch the Challenge template
+	challenge := &ctfv1alpha1.Challenge{}
+	challengeKey := types.NamespacedName{
+		Name:      instance.Spec.ChallengeName,
+		Namespace: instance.Namespace,
+	}
+	if err := r.Get(ctx, challengeKey, challenge); err != nil {
+		log.Error(err, "Failed to get Challenge", "challengeName", instance.Spec.ChallengeName)
+		instance.Status.Phase = "Failed"
+		if updateErr := r.Status().Update(ctx, instance); updateErr != nil {
+			log.Error(updateErr, "Failed to update instance status")
+		}
+		return ctrl.Result{}, err
+	}
+
+	// 4. Generate flag if not exists
+	if len(instance.Status.Flags) == 0 {
+		flag, err := flaggen.Generate(
+			challenge.Spec.Scenario.FlagTemplate,
+			instance.Name,
+			instance.Spec.SourceID,
+			instance.Spec.ChallengeID,
+		)
+		if err != nil {
+			log.Error(err, "Failed to generate flag")
+			return ctrl.Result{}, err
+		}
+		instance.Status.Flags = []string{flag}
+		instance.Status.Phase = "Pending"
+		if err := r.Status().Update(ctx, instance); err != nil {
+			log.Error(err, "Failed to update instance status with flag")
+			return ctrl.Result{}, err
+		}
+		// Requeue to continue with deployment creation
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// 5. Create or Update Deployment
+	deployment := builder.BuildDeployment(instance, challenge)
+	if err := controllerutil.SetControllerReference(instance, deployment, r.Scheme); err != nil {
+		log.Error(err, "Failed to set owner reference on Deployment")
+		return ctrl.Result{}, err
+	}
+
+	existingDeployment := &appsv1.Deployment{}
+	err := r.Get(ctx, types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, existingDeployment)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Creating Deployment", "deployment", deployment.Name)
+			if err := r.Create(ctx, deployment); err != nil {
+				log.Error(err, "Failed to create Deployment")
+				return ctrl.Result{}, err
+			}
+			instance.Status.DeploymentName = deployment.Name
+			if err := r.Status().Update(ctx, instance); err != nil {
+				log.Error(err, "Failed to update instance status with deployment name")
+				return ctrl.Result{}, err
+			}
+		} else {
+			log.Error(err, "Failed to get Deployment")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// 6. Create or Update Service
+	service := builder.BuildService(instance, challenge)
+	if err := controllerutil.SetControllerReference(instance, service, r.Scheme); err != nil {
+		log.Error(err, "Failed to set owner reference on Service")
+		return ctrl.Result{}, err
+	}
+
+	existingService := &corev1.Service{}
+	err = r.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, existingService)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Creating Service", "service", service.Name)
+			if err := r.Create(ctx, service); err != nil {
+				log.Error(err, "Failed to create Service")
+				return ctrl.Result{}, err
+			}
+			instance.Status.ServiceName = service.Name
+			if err := r.Status().Update(ctx, instance); err != nil {
+				log.Error(err, "Failed to update instance status with service name")
+				return ctrl.Result{}, err
+			}
+		} else {
+			log.Error(err, "Failed to get Service")
+			return ctrl.Result{}, err
+		}
+	} else {
+		// Service exists, update connection info if NodePort is assigned
+		connInfo := builder.GetConnectionInfo(existingService, r.getNodeIP())
+		if connInfo != "" && instance.Status.ConnectionInfo != connInfo {
+			instance.Status.ConnectionInfo = connInfo
+			if err := r.Status().Update(ctx, instance); err != nil {
+				log.Error(err, "Failed to update connection info")
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	// 7. Check if Deployment is ready
+	if existingDeployment.Name != "" {
+		if err := r.Get(ctx, types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, existingDeployment); err == nil {
+			if existingDeployment.Status.ReadyReplicas > 0 {
+				if instance.Status.Phase != "Running" || !instance.Status.Ready {
+					instance.Status.Phase = "Running"
+					instance.Status.Ready = true
+
+					// Update connection info from service
+					if err := r.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, existingService); err == nil {
+						connInfo := builder.GetConnectionInfo(existingService, r.getNodeIP())
+						if connInfo != "" {
+							instance.Status.ConnectionInfo = connInfo
+						}
+					}
+
+					if err := r.Status().Update(ctx, instance); err != nil {
+						log.Error(err, "Failed to update instance status to Running")
+						return ctrl.Result{}, err
+					}
+					log.Info("Instance is now Running", "instance", instance.Name, "connectionInfo", instance.Status.ConnectionInfo)
+				}
+			}
+		}
+	}
+
+	// 8. Requeue to check status periodically
+	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+}
+
+// getNodeIP returns the node IP for connection info
+func (r *ChallengeInstanceReconciler) getNodeIP() string {
+	if r.NodeIP != "" {
+		return r.NodeIP
+	}
+	// Try to get from environment
+	if nodeIP := os.Getenv("NODE_IP"); nodeIP != "" {
+		return nodeIP
+	}
+	// Default fallback
+	return "localhost"
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ChallengeInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&ctfv1alpha1.ChallengeInstance{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
 		Named("challengeinstance").
 		Complete(r)
+}
+
+// Helper function to create a pointer to a string
+func ptr[T any](v T) *T {
+	return &v
+}
+
+// formatConnectionInfo creates a connection string based on service type
+func formatConnectionInfo(service *corev1.Service, nodeIP string) string {
+	if service == nil || len(service.Spec.Ports) == 0 {
+		return ""
+	}
+
+	port := service.Spec.Ports[0]
+
+	switch service.Spec.Type {
+	case corev1.ServiceTypeNodePort:
+		if port.NodePort > 0 {
+			return fmt.Sprintf("nc %s %d", nodeIP, port.NodePort)
+		}
+	case corev1.ServiceTypeLoadBalancer:
+		if len(service.Status.LoadBalancer.Ingress) > 0 {
+			ingress := service.Status.LoadBalancer.Ingress[0]
+			host := ingress.IP
+			if host == "" {
+				host = ingress.Hostname
+			}
+			if host != "" {
+				return fmt.Sprintf("nc %s %d", host, port.Port)
+			}
+		}
+	}
+
+	return ""
 }
