@@ -138,6 +138,11 @@ spec:
               deploymentName:
                 description: DeploymentName is the name of the created Deployment
                 type: string
+              flagValidated:
+                description: |-
+                  FlagValidated indicates if the flag has been submitted correctly
+                  When true, the instance will be deleted by the janitor
+                type: boolean
               flags:
                 description: Flags contains the generated flags for this instance
                 items:

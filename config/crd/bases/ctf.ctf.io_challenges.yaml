@@ -46,6 +46,159 @@ spec:
               scenario:
                 description: Scenario defines how to deploy the challenge
                 properties:
+                  attackBox:
+                    description: AttackBox enables an attack box (web terminal) for
+                      this challenge
+                    properties:
+                      enabled:
+                        default: true
+                        description: Enabled enables the attack box deployment
+                        type: boolean
+                      image:
+                        default: attack-box:latest
+                        description: Image is the attack box container image
+                        type: string
+                      port:
+                        default: 7681
+                        description: 'Port is the ttyd port (default: 7681)'
+                        format: int32
+                        type: integer
+                      resources:
+                        description: Resources for the attack box container
+                        properties:
+                          claims:
+                            description: |-
+                              Claims lists the names of resources, defined in spec.resourceClaims,
+                              that are used by this container.
+
+                              This field depends on the
+                              DynamicResourceAllocation feature gate.
+
+                              This field is immutable. It can only be set for containers.
+                            items:
+                              description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                              properties:
+                                name:
+                                  description: |-
+                                    Name must match the name of one entry in pod.spec.resourceClaims of
+                                    the Pod where this field is used. It makes that resource available
+                                    inside a container.
+                                  type: string
+                                request:
+                                  description: |-
+                                    Request is the name chosen for a request in the referenced claim.
+                                    If empty, everything from the claim is made available, otherwise
+                                    only the result of this request.
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Limits describes the maximum amount of compute resources allowed.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Requests describes the minimum amount of compute resources required.
+                              If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                              otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                        type: object
+                    required:
+                    - enabled
+                    type: object
+                  authProxy:
+                    description: AuthProxy enables the auth-proxy sidecar to verify
+                      user identity
+                    properties:
+                      enabled:
+                        default: true
+                        description: Enabled enables the auth-proxy sidecar
+                        type: boolean
+                      image:
+                        default: ctf-auth-proxy:simple
+                        description: Image is the auth-proxy container image
+                        type: string
+                      resources:
+                        description: Resources for the auth-proxy sidecar
+                        properties:
+                          claims:
+                            description: |-
+                              Claims lists the names of resources, defined in spec.resourceClaims,
+                              that are used by this container.
+
+                              This field depends on the
+                              DynamicResourceAllocation feature gate.
+
+                              This field is immutable. It can only be set for containers.
+                            items:
+                              description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                              properties:
+                                name:
+                                  description: |-
+                                    Name must match the name of one entry in pod.spec.resourceClaims of
+                                    the Pod where this field is used. It makes that resource available
+                                    inside a container.
+                                  type: string
+                                request:
+                                  description: |-
+                                    Request is the name chosen for a request in the referenced claim.
+                                    If empty, everything from the claim is made available, otherwise
+                                    only the result of this request.
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Limits describes the maximum amount of compute resources allowed.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Requests describes the minimum amount of compute resources required.
+                              If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                              otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                        type: object
+                    required:
+                    - enabled
+                    type: object
                   env:
                     description: Env is a list of environment variables to set in
                       the container
@@ -207,11 +360,12 @@ spec:
                     type: array
                   exposeType:
                     default: NodePort
-                    description: ExposeType defines how to expose the service (NodePort
-                      or LoadBalancer)
+                    description: ExposeType defines how to expose the service (NodePort,
+                      LoadBalancer, or Ingress)
                     enum:
                     - NodePort
                     - LoadBalancer
+                    - Ingress
                     type: string
                   flagTemplate:
                     description: |-
@@ -222,6 +376,56 @@ spec:
                   image:
                     description: Image is the container image to deploy
                     type: string
+                  ingress:
+                    description: Ingress configuration for exposing via Ingress controller
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: Annotations to add to the Ingress
+                        type: object
+                      clusterIssuer:
+                        description: ClusterIssuer for cert-manager TLS
+                        type: string
+                      enabled:
+                        default: true
+                        description: Enabled enables Ingress creation
+                        type: boolean
+                      hostTemplate:
+                        description: |-
+                          HostTemplate is a Go template for generating the hostname
+                          Available variables: .InstanceName, .Username, .ChallengeID
+                          Example: "ctf.{{.InstanceName}}.{{.Username}}.{{.ChallengeID}}.devleo.local"
+                        type: string
+                      ingressClassName:
+                        default: nginx
+                        description: IngressClassName is the ingress class to use
+                        type: string
+                      tls:
+                        description: TLS enables TLS for the Ingress
+                        type: boolean
+                    required:
+                    - enabled
+                    type: object
+                  networkPolicy:
+                    description: NetworkPolicy enables network isolation for the challenge
+                    properties:
+                      allowDNS:
+                        default: true
+                        description: AllowDNS allows egress to kube-dns
+                        type: boolean
+                      allowInternet:
+                        default: true
+                        description: AllowInternet allows egress to internet (excluding
+                          private ranges)
+                        type: boolean
+                      enabled:
+                        default: true
+                        description: Enabled enables NetworkPolicy creation
+                        type: boolean
+                    required:
+                    - enabled
+                    type: object
                   port:
                     description: Port is the container port to expose
                     format: int32

@@ -74,6 +74,11 @@ type ChallengeInstanceStatus struct {
 	// +optional
 	Ready bool `json:"ready,omitempty"`
 
+	// FlagValidated indicates if the flag has been submitted correctly
+	// When true, the instance will be deleted by the janitor
+	// +optional
+	FlagValidated bool `json:"flagValidated,omitempty"`
+
 	// Conditions represent the current state of the ChallengeInstance
 	// +listType=map
 	// +listMapKey=type

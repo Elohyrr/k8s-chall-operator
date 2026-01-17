@@ -279,6 +279,124 @@ func (h *Handler) ListInstances(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(responses)
 }
 
+// ValidateFlagRequest represents the request body for flag validation
+type ValidateFlagRequest struct {
+	Flag string `json:"flag"`
+}
+
+// ValidateFlag handles POST /api/v1/instance/{challengeId}/{sourceId}/validate
+// When the flag is correct, marks the instance for deletion by the janitor
+func (h *Handler) ValidateFlag(w http.ResponseWriter, r *http.Request) {
+	challengeID := chi.URLParam(r, "challengeId")
+	sourceID := chi.URLParam(r, "sourceId")
+
+	if challengeID == "" || sourceID == "" {
+		h.writeError(w, http.StatusBadRequest, "Missing path parameters", "challengeId and sourceId are required")
+		return
+	}
+
+	var req ValidateFlagRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+
+	if req.Flag == "" {
+		h.writeError(w, http.StatusBadRequest, "Missing flag", "flag is required")
+		return
+	}
+
+	instanceName := fmt.Sprintf("%s-%s", challengeID, sourceID)
+	ctx := context.Background()
+
+	instance := &ctfv1alpha1.ChallengeInstance{}
+	if err := h.client.Get(ctx, types.NamespacedName{
+		Name:      instanceName,
+		Namespace: h.namespace,
+	}, instance); err != nil {
+		h.writeError(w, http.StatusNotFound, "Instance not found", err.Error())
+		return
+	}
+
+	// Check if the flag is correct
+	flagValid := false
+	for _, correctFlag := range instance.Status.Flags {
+		if req.Flag == correctFlag {
+			flagValid = true
+			break
+		}
+	}
+
+	if !flagValid {
+		h.writeError(w, http.StatusForbidden, "Invalid flag", "The submitted flag is incorrect")
+		return
+	}
+
+	// Mark the instance for deletion by setting FlagValidated = true
+	instance.Status.FlagValidated = true
+	if err := h.client.Status().Update(ctx, instance); err != nil {
+		log.Printf("Failed to mark instance %s as validated: %v", instanceName, err)
+		h.writeError(w, http.StatusInternalServerError, "Failed to validate flag", err.Error())
+		return
+	}
+
+	log.Printf("Flag validated for instance %s, marked for deletion", instanceName)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"valid":   true,
+		"message": "Flag correct! Instance will be cleaned up.",
+	})
+}
+
+// RenewInstance handles POST /api/v1/instance/{challengeId}/{sourceId}/renew
+// Extends the instance expiration time
+func (h *Handler) RenewInstance(w http.ResponseWriter, r *http.Request) {
+	challengeID := chi.URLParam(r, "challengeId")
+	sourceID := chi.URLParam(r, "sourceId")
+
+	if challengeID == "" || sourceID == "" {
+		h.writeError(w, http.StatusBadRequest, "Missing path parameters", "challengeId and sourceId are required")
+		return
+	}
+
+	instanceName := fmt.Sprintf("%s-%s", challengeID, sourceID)
+	ctx := context.Background()
+
+	instance := &ctfv1alpha1.ChallengeInstance{}
+	if err := h.client.Get(ctx, types.NamespacedName{
+		Name:      instanceName,
+		Namespace: h.namespace,
+	}, instance); err != nil {
+		h.writeError(w, http.StatusNotFound, "Instance not found", err.Error())
+		return
+	}
+
+	// Get timeout from challenge (default 600 seconds)
+	timeout := int64(600)
+	challenge := &ctfv1alpha1.Challenge{}
+	if err := h.client.Get(ctx, types.NamespacedName{
+		Name:      instance.Spec.ChallengeName,
+		Namespace: h.namespace,
+	}, challenge); err == nil {
+		if challenge.Spec.Timeout > 0 {
+			timeout = challenge.Spec.Timeout
+		}
+	}
+
+	// Extend expiration
+	newUntil := metav1.NewTime(time.Now().Add(time.Duration(timeout) * time.Second))
+	instance.Spec.Until = &newUntil
+
+	if err := h.client.Update(ctx, instance); err != nil {
+		h.writeError(w, http.StatusInternalServerError, "Failed to renew instance", err.Error())
+		return
+	}
+
+	log.Printf("Instance %s renewed until %s", instanceName, newUntil.Format(time.RFC3339))
+	h.writeInstanceResponse(w, instance)
+}
+
 // Health handles GET /health
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

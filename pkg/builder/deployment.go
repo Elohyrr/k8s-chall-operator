@@ -17,6 +17,9 @@ limitations under the License.
 package builder
 
 import (
+	"fmt"
+	"strings"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,13 +28,27 @@ import (
 	ctfv1alpha1 "github.com/leo/chall-operator/api/v1alpha1"
 )
 
+// SanitizeForLabel converts a string to be DNS-safe for Kubernetes labels
+// Example: "uwu@uwu.uwu" -> "uwu-at-uwu-uwu"
+func SanitizeForLabel(s string) string {
+	result := strings.ReplaceAll(s, "@", "-at-")
+	result = strings.ReplaceAll(result, ".", "-")
+	result = strings.ToLower(result)
+	// Truncate to 63 chars (K8s label limit)
+	if len(result) > 63 {
+		result = result[:63]
+	}
+	return result
+}
+
 // BuildDeployment creates a Deployment for a ChallengeInstance based on the Challenge template
+// If AuthProxy is enabled, adds a sidecar container that verifies user identity
 func BuildDeployment(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) *appsv1.Deployment {
 	labels := map[string]string{
 		"app":                          "challenge",
 		"ctf.io/challenge":             instance.Spec.ChallengeID,
 		"ctf.io/instance":              instance.Name,
-		"ctf.io/source":                instance.Spec.SourceID,
+		"ctf.io/source":                SanitizeForLabel(instance.Spec.SourceID),
 		"app.kubernetes.io/name":       "challenge-instance",
 		"app.kubernetes.io/instance":   instance.Name,
 		"app.kubernetes.io/managed-by": "chall-operator",
@@ -65,7 +82,64 @@ func BuildDeployment(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1al
 		},
 	)
 
-	deploymentName := instance.Name + "-deployment"
+	deploymentName := DeploymentName(instance)
+
+	// Build containers list
+	containers := []corev1.Container{}
+
+	// Check if AuthProxy is enabled
+	authProxyEnabled := challenge.Spec.Scenario.AuthProxy != nil && challenge.Spec.Scenario.AuthProxy.Enabled
+	challengePort := challenge.Spec.Scenario.Port
+
+	if authProxyEnabled {
+		// Auth proxy listens on port 80, forwards to challenge port
+		authProxyImage := "ctf-auth-proxy:simple"
+		if challenge.Spec.Scenario.AuthProxy.Image != "" {
+			authProxyImage = challenge.Spec.Scenario.AuthProxy.Image
+		}
+
+		authProxyContainer := corev1.Container{
+			Name:            "auth-proxy",
+			Image:           authProxyImage,
+			ImagePullPolicy: corev1.PullIfNotPresent,
+			Env: []corev1.EnvVar{
+				{
+					Name:  "ALLOWED_USER",
+					Value: instance.Spec.SourceID, // Original email/ID for verification
+				},
+				{
+					Name:  "TARGET_PORT",
+					Value: fmt.Sprintf("%d", challengePort),
+				},
+			},
+			Ports: []corev1.ContainerPort{
+				{
+					Name:          "http",
+					ContainerPort: 80,
+					Protocol:      corev1.ProtocolTCP,
+				},
+			},
+			Resources: challenge.Spec.Scenario.AuthProxy.Resources,
+		}
+		containers = append(containers, authProxyContainer)
+	}
+
+	// Main challenge container
+	challengeContainer := corev1.Container{
+		Name:            "challenge",
+		Image:           challenge.Spec.Scenario.Image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Ports: []corev1.ContainerPort{
+			{
+				Name:          "challenge",
+				ContainerPort: challengePort,
+				Protocol:      corev1.ProtocolTCP,
+			},
+		},
+		Env:       env,
+		Resources: challenge.Spec.Scenario.Resources,
+	}
+	containers = append(containers, challengeContainer)
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -85,21 +159,7 @@ func BuildDeployment(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1al
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "challenge",
-							Image: challenge.Spec.Scenario.Image,
-							Ports: []corev1.ContainerPort{
-								{
-									Name:          "challenge",
-									ContainerPort: challenge.Spec.Scenario.Port,
-									Protocol:      corev1.ProtocolTCP,
-								},
-							},
-							Env:       env,
-							Resources: challenge.Spec.Scenario.Resources,
-						},
-					},
+					Containers:    containers,
 					RestartPolicy: corev1.RestartPolicyAlways,
 				},
 			},

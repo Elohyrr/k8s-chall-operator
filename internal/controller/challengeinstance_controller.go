@@ -24,6 +24,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -50,6 +51,8 @@ type ChallengeInstanceReconciler struct {
 // +kubebuilder:rbac:groups=ctf.ctf.io,resources=challenges,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile handles the reconciliation loop for ChallengeInstance resources
 func (r *ChallengeInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -71,6 +74,16 @@ func (r *ChallengeInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		log.Info("Instance expired, deleting", "instance", instance.Name)
 		if err := r.Delete(ctx, instance); err != nil {
 			log.Error(err, "Failed to delete expired instance")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// 2b. Check if flag was validated - delete instance (janitor cleanup)
+	if instance.Status.FlagValidated {
+		log.Info("Flag validated, deleting instance", "instance", instance.Name)
+		if err := r.Delete(ctx, instance); err != nil {
+			log.Error(err, "Failed to delete validated instance")
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -177,7 +190,87 @@ func (r *ChallengeInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}
 
-	// 7. Check if Deployment is ready
+	// 7. Create AttackBox Deployment if enabled
+	if attackBoxDeploy := builder.BuildAttackBoxDeployment(instance, challenge); attackBoxDeploy != nil {
+		if err := controllerutil.SetControllerReference(instance, attackBoxDeploy, r.Scheme); err != nil {
+			log.Error(err, "Failed to set owner reference on AttackBox Deployment")
+			return ctrl.Result{}, err
+		}
+
+		existingAttackBox := &appsv1.Deployment{}
+		err := r.Get(ctx, types.NamespacedName{Name: attackBoxDeploy.Name, Namespace: attackBoxDeploy.Namespace}, existingAttackBox)
+		if err != nil && apierrors.IsNotFound(err) {
+			log.Info("Creating AttackBox Deployment", "deployment", attackBoxDeploy.Name)
+			if err := r.Create(ctx, attackBoxDeploy); err != nil {
+				log.Error(err, "Failed to create AttackBox Deployment")
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	// 8. Create AttackBox Service if enabled
+	if attackBoxSvc := builder.BuildAttackBoxService(instance, challenge); attackBoxSvc != nil {
+		if err := controllerutil.SetControllerReference(instance, attackBoxSvc, r.Scheme); err != nil {
+			log.Error(err, "Failed to set owner reference on AttackBox Service")
+			return ctrl.Result{}, err
+		}
+
+		existingAttackBoxSvc := &corev1.Service{}
+		err := r.Get(ctx, types.NamespacedName{Name: attackBoxSvc.Name, Namespace: attackBoxSvc.Namespace}, existingAttackBoxSvc)
+		if err != nil && apierrors.IsNotFound(err) {
+			log.Info("Creating AttackBox Service", "service", attackBoxSvc.Name)
+			if err := r.Create(ctx, attackBoxSvc); err != nil {
+				log.Error(err, "Failed to create AttackBox Service")
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	// 9. Create Ingress if enabled
+	if ingress := builder.BuildIngress(instance, challenge); ingress != nil {
+		if err := controllerutil.SetControllerReference(instance, ingress, r.Scheme); err != nil {
+			log.Error(err, "Failed to set owner reference on Ingress")
+			return ctrl.Result{}, err
+		}
+
+		existingIngress := &networkingv1.Ingress{}
+		err := r.Get(ctx, types.NamespacedName{Name: ingress.Name, Namespace: ingress.Namespace}, existingIngress)
+		if err != nil && apierrors.IsNotFound(err) {
+			log.Info("Creating Ingress", "ingress", ingress.Name)
+			if err := r.Create(ctx, ingress); err != nil {
+				log.Error(err, "Failed to create Ingress")
+				return ctrl.Result{}, err
+			}
+			// Update connection info with Ingress hostname
+			hostname := builder.GetIngressHostname(instance, challenge)
+			if hostname != "" {
+				instance.Status.ConnectionInfo = fmt.Sprintf("http://%s", hostname)
+				if challenge.Spec.Scenario.AttackBox != nil && challenge.Spec.Scenario.AttackBox.Enabled {
+					instance.Status.ConnectionInfo = fmt.Sprintf("Challenge: http://%s\nTerminal: http://%s/terminal", hostname, hostname)
+				}
+			}
+		}
+	}
+
+	// 10. Create NetworkPolicy if enabled
+	if netpol := builder.BuildNetworkPolicy(instance, challenge); netpol != nil {
+		if err := controllerutil.SetControllerReference(instance, netpol, r.Scheme); err != nil {
+			log.Error(err, "Failed to set owner reference on NetworkPolicy")
+			return ctrl.Result{}, err
+		}
+
+		existingNetpol := &networkingv1.NetworkPolicy{}
+		err := r.Get(ctx, types.NamespacedName{Name: netpol.Name, Namespace: netpol.Namespace}, existingNetpol)
+		if err != nil && apierrors.IsNotFound(err) {
+			log.Info("Creating NetworkPolicy", "networkpolicy", netpol.Name)
+			if err := r.Create(ctx, netpol); err != nil {
+				log.Error(err, "Failed to create NetworkPolicy")
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	// 11. Check if Deployment is ready
 	if existingDeployment.Name != "" {
 		if err := r.Get(ctx, types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, existingDeployment); err == nil {
 			if existingDeployment.Status.ReadyReplicas > 0 {
@@ -226,6 +319,8 @@ func (r *ChallengeInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&ctfv1alpha1.ChallengeInstance{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
+		Owns(&networkingv1.Ingress{}).
+		Owns(&networkingv1.NetworkPolicy{}).
 		Named("challengeinstance").
 		Complete(r)
 }

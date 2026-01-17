@@ -49,8 +49,8 @@ type ChallengeScenarioSpec struct {
 	// +kubebuilder:validation:Maximum=65535
 	Port int32 `json:"port"`
 
-	// ExposeType defines how to expose the service (NodePort or LoadBalancer)
-	// +kubebuilder:validation:Enum=NodePort;LoadBalancer
+	// ExposeType defines how to expose the service (NodePort, LoadBalancer, or Ingress)
+	// +kubebuilder:validation:Enum=NodePort;LoadBalancer;Ingress
 	// +kubebuilder:default=NodePort
 	// +optional
 	ExposeType string `json:"exposeType,omitempty"`
@@ -68,6 +68,106 @@ type ChallengeScenarioSpec struct {
 	// Resources defines the resource requirements for the container
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// AuthProxy enables the auth-proxy sidecar to verify user identity
+	// +optional
+	AuthProxy *AuthProxySpec `json:"authProxy,omitempty"`
+
+	// AttackBox enables an attack box (web terminal) for this challenge
+	// +optional
+	AttackBox *AttackBoxSpec `json:"attackBox,omitempty"`
+
+	// Ingress configuration for exposing via Ingress controller
+	// +optional
+	Ingress *IngressSpec `json:"ingress,omitempty"`
+
+	// NetworkPolicy enables network isolation for the challenge
+	// +optional
+	NetworkPolicy *NetworkPolicySpec `json:"networkPolicy,omitempty"`
+}
+
+// AuthProxySpec defines the auth-proxy sidecar configuration
+type AuthProxySpec struct {
+	// Enabled enables the auth-proxy sidecar
+	// +kubebuilder:default=true
+	Enabled bool `json:"enabled"`
+
+	// Image is the auth-proxy container image
+	// +kubebuilder:default="ctf-auth-proxy:simple"
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// Resources for the auth-proxy sidecar
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// AttackBoxSpec defines the attack box configuration
+type AttackBoxSpec struct {
+	// Enabled enables the attack box deployment
+	// +kubebuilder:default=true
+	Enabled bool `json:"enabled"`
+
+	// Image is the attack box container image
+	// +kubebuilder:default="attack-box:latest"
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// Port is the ttyd port (default: 7681)
+	// +kubebuilder:default=7681
+	// +optional
+	Port int32 `json:"port,omitempty"`
+
+	// Resources for the attack box container
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// IngressSpec defines the Ingress configuration
+type IngressSpec struct {
+	// Enabled enables Ingress creation
+	// +kubebuilder:default=true
+	Enabled bool `json:"enabled"`
+
+	// HostTemplate is a Go template for generating the hostname
+	// Available variables: .InstanceName, .Username, .ChallengeID
+	// Example: "ctf.{{.InstanceName}}.{{.Username}}.{{.ChallengeID}}.devleo.local"
+	// +optional
+	HostTemplate string `json:"hostTemplate,omitempty"`
+
+	// IngressClassName is the ingress class to use
+	// +kubebuilder:default="nginx"
+	// +optional
+	IngressClassName string `json:"ingressClassName,omitempty"`
+
+	// Annotations to add to the Ingress
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// TLS enables TLS for the Ingress
+	// +optional
+	TLS bool `json:"tls,omitempty"`
+
+	// ClusterIssuer for cert-manager TLS
+	// +optional
+	ClusterIssuer string `json:"clusterIssuer,omitempty"`
+}
+
+// NetworkPolicySpec defines network isolation rules
+type NetworkPolicySpec struct {
+	// Enabled enables NetworkPolicy creation
+	// +kubebuilder:default=true
+	Enabled bool `json:"enabled"`
+
+	// AllowInternet allows egress to internet (excluding private ranges)
+	// +kubebuilder:default=true
+	// +optional
+	AllowInternet bool `json:"allowInternet,omitempty"`
+
+	// AllowDNS allows egress to kube-dns
+	// +kubebuilder:default=true
+	// +optional
+	AllowDNS bool `json:"allowDNS,omitempty"`
 }
 
 // ChallengeStatus defines the observed state of Challenge

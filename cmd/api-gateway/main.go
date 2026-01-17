@@ -71,6 +71,8 @@ func main() {
 		r.Get("/instance", handler.ListInstances)
 		r.Get("/instance/{challengeId}/{sourceId}", handler.GetInstance)
 		r.Delete("/instance/{challengeId}/{sourceId}", handler.DeleteInstance)
+		r.Post("/instance/{challengeId}/{sourceId}/validate", handler.ValidateFlag)
+		r.Post("/instance/{challengeId}/{sourceId}/renew", handler.RenewInstance)
 	})
 
 	// Get port from environment

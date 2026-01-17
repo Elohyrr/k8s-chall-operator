@@ -1,0 +1,215 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package builder
+
+import (
+	"bytes"
+	"text/template"
+
+	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	ctfv1alpha1 "github.com/leo/chall-operator/api/v1alpha1"
+)
+
+// DefaultHostTemplate is the default template for generating ingress hostnames
+const DefaultHostTemplate = "ctf.{{.InstanceName}}.{{.Username}}.{{.ChallengeID}}.devleo.local"
+
+// HostContext contains variables available for host template rendering
+type HostContext struct {
+	InstanceName string
+	Username     string
+	ChallengeID  string
+	SourceID     string
+}
+
+// BuildIngress creates an Ingress for a ChallengeInstance
+// The Ingress exposes both the challenge (/) and attackbox (/terminal) paths
+func BuildIngress(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) *networkingv1.Ingress {
+	if challenge.Spec.Scenario.Ingress == nil || !challenge.Spec.Scenario.Ingress.Enabled {
+		return nil
+	}
+
+	ingressName := IngressName(instance)
+	username := SanitizeForLabel(instance.Spec.SourceID)
+
+	// Generate hostname from template
+	hostTemplate := DefaultHostTemplate
+	if challenge.Spec.Scenario.Ingress.HostTemplate != "" {
+		hostTemplate = challenge.Spec.Scenario.Ingress.HostTemplate
+	}
+
+	hostname, err := renderHostTemplate(hostTemplate, HostContext{
+		InstanceName: instance.Name,
+		Username:     username,
+		ChallengeID:  instance.Spec.ChallengeID,
+		SourceID:     instance.Spec.SourceID,
+	})
+	if err != nil {
+		// Fallback to simple hostname
+		hostname = instance.Name + ".ctf.local"
+	}
+
+	// Build annotations
+	annotations := map[string]string{
+		"kubernetes.io/ingress.class": challenge.Spec.Scenario.Ingress.IngressClassName,
+	}
+
+	// Default OAuth2 annotations for CTF authentication
+	defaultAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/rewrite-target":          "/",
+		"nginx.ingress.kubernetes.io/ssl-redirect":            "false",
+		"nginx.ingress.kubernetes.io/auth-url":                "http://oauth2-proxy.keycloak.svc.cluster.local:4180/oauth2/auth",
+		"nginx.ingress.kubernetes.io/auth-signin":             "http://auth.devleo.local/oauth2/start?rd=$scheme://$host$request_uri",
+		"nginx.ingress.kubernetes.io/auth-response-headers":   "X-Auth-Request-User,X-Auth-Request-Email,Authorization",
+		"nginx.ingress.kubernetes.io/proxy-buffer-size":       "16k",
+		"nginx.ingress.kubernetes.io/proxy-buffers-number":    "4",
+		"nginx.ingress.kubernetes.io/proxy-busy-buffers-size": "24k",
+	}
+
+	// Merge default annotations
+	for k, v := range defaultAnnotations {
+		if _, exists := annotations[k]; !exists {
+			annotations[k] = v
+		}
+	}
+
+	// Merge custom annotations from spec
+	for k, v := range challenge.Spec.Scenario.Ingress.Annotations {
+		annotations[k] = v
+	}
+
+	// Add TLS annotations if enabled
+	if challenge.Spec.Scenario.Ingress.TLS && challenge.Spec.Scenario.Ingress.ClusterIssuer != "" {
+		annotations["cert-manager.io/cluster-issuer"] = challenge.Spec.Scenario.Ingress.ClusterIssuer
+	}
+
+	// Build paths
+	pathType := networkingv1.PathTypePrefix
+	paths := []networkingv1.HTTPIngressPath{
+		// Challenge path (/)
+		{
+			Path:     "/",
+			PathType: &pathType,
+			Backend: networkingv1.IngressBackend{
+				Service: &networkingv1.IngressServiceBackend{
+					Name: ServiceName(instance),
+					Port: networkingv1.ServiceBackendPort{
+						Number: 80,
+					},
+				},
+			},
+		},
+	}
+
+	// Add attackbox path if enabled
+	if challenge.Spec.Scenario.AttackBox != nil && challenge.Spec.Scenario.AttackBox.Enabled {
+		paths = append(paths, networkingv1.HTTPIngressPath{
+			Path:     "/terminal",
+			PathType: &pathType,
+			Backend: networkingv1.IngressBackend{
+				Service: &networkingv1.IngressServiceBackend{
+					Name: AttackBoxServiceName(instance),
+					Port: networkingv1.ServiceBackendPort{
+						Number: 8080,
+					},
+				},
+			},
+		})
+	}
+
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        ingressName,
+			Namespace:   instance.Namespace,
+			Annotations: annotations,
+			Labels: map[string]string{
+				"ctf.io/challenge":             instance.Spec.ChallengeID,
+				"ctf.io/instance":              instance.Name,
+				"ctf.io/source":                username,
+				"app.kubernetes.io/managed-by": "chall-operator",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: hostname,
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: paths,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Add TLS if enabled
+	if challenge.Spec.Scenario.Ingress.TLS {
+		ingress.Spec.TLS = []networkingv1.IngressTLS{
+			{
+				Hosts:      []string{hostname},
+				SecretName: ingressName + "-tls",
+			},
+		}
+	}
+
+	return ingress
+}
+
+// IngressName returns the name of the ingress for an instance
+func IngressName(instance *ctfv1alpha1.ChallengeInstance) string {
+	return instance.Name + "-ingress"
+}
+
+// GetIngressHostname returns the hostname for an instance's ingress
+func GetIngressHostname(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) string {
+	if challenge.Spec.Scenario.Ingress == nil {
+		return ""
+	}
+
+	hostTemplate := DefaultHostTemplate
+	if challenge.Spec.Scenario.Ingress.HostTemplate != "" {
+		hostTemplate = challenge.Spec.Scenario.Ingress.HostTemplate
+	}
+
+	hostname, err := renderHostTemplate(hostTemplate, HostContext{
+		InstanceName: instance.Name,
+		Username:     SanitizeForLabel(instance.Spec.SourceID),
+		ChallengeID:  instance.Spec.ChallengeID,
+		SourceID:     instance.Spec.SourceID,
+	})
+	if err != nil {
+		return instance.Name + ".ctf.local"
+	}
+	return hostname
+}
+
+// renderHostTemplate renders a hostname template with the given context
+func renderHostTemplate(tmpl string, ctx HostContext) (string, error) {
+	t, err := template.New("host").Parse(tmpl)
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, ctx); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}

@@ -9,15 +9,77 @@ metadata:
 spec:
   id: "test-web"
   scenario:
+    image: chal1-app:latest
+    port: 8080
+    exposeType: Ingress
+    flagTemplate: 'CTF{{"{"}}{{.InstanceID}}_{{.SourceID}}{{"}"}}'
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+    # Auth proxy sidecar - verifies user identity via X-Auth-Request-Email header
+    authProxy:
+      enabled: true
+      image: ctf-auth-proxy:simple
+      resources:
+        limits:
+          cpu: 50m
+          memory: 32Mi
+        requests:
+          cpu: 10m
+          memory: 16Mi
+    # Attack box - web terminal for users to interact with the challenge
+    attackBox:
+      enabled: true
+      image: attack-box:latest
+      port: 7681
+      resources:
+        limits:
+          cpu: 200m
+          memory: 256Mi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+    # Ingress configuration with OAuth2 authentication
+    ingress:
+      enabled: true
+      hostTemplate: "ctf.{{.InstanceName}}.{{.Username}}.{{.ChallengeID}}.devleo.local"
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/auth-url: "http://oauth2-proxy.keycloak.svc.cluster.local:4180/oauth2/auth"
+        nginx.ingress.kubernetes.io/auth-signin: "http://auth.devleo.local/oauth2/start?rd=$scheme://$host$request_uri"
+        nginx.ingress.kubernetes.io/auth-response-headers: "X-Auth-Request-User,X-Auth-Request-Email,Authorization"
+    # Network policy to isolate attack box
+    networkPolicy:
+      enabled: true
+      allowDNS: true
+      allowInternet: true
+  timeout: 600
+---
+# Simple challenge without auth proxy or attack box (NodePort only)
+apiVersion: ctf.ctf.io/v1alpha1
+kind: Challenge
+metadata:
+  labels:
+    app.kubernetes.io/name: chall-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: simple-web
+  namespace: ctf-instances
+spec:
+  id: "simple-web"
+  scenario:
     image: nginx:alpine
     port: 80
     exposeType: NodePort
-    flagTemplate: 'FLAG{{"{"}}{{.ChallengeID}}_{{.SourceID}}_{{.RandomString}}{{"}"}}'
+    flagTemplate: 'FLAG{{"{"}}{{.ChallengeID}}_{{.RandomString}}{{"}"}}'
     resources:
       limits:
-        cpu: 500m
-        memory: 512Mi
-      requests:
         cpu: 100m
         memory: 128Mi
-  timeout: 600
+      requests:
+        cpu: 50m
+        memory: 64Mi
+  timeout: 300
