@@ -108,6 +108,13 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
+.PHONY: build-gateway
+build-gateway: fmt vet ## Build API gateway binary.
+	go build -o bin/api-gateway cmd/api-gateway/main.go
+
+.PHONY: build-all
+build-all: build build-gateway ## Build all binaries.
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
@@ -118,6 +125,13 @@ run: manifests generate fmt vet ## Run a controller from your host.
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} .
+
+.PHONY: docker-build-gateway
+docker-build-gateway: ## Build docker image for the API gateway.
+	$(CONTAINER_TOOL) build -t chall-operator-gateway:latest -f Dockerfile.gateway .
+
+.PHONY: docker-build-all
+docker-build-all: docker-build docker-build-gateway ## Build all docker images.
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.

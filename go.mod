@@ -3,6 +3,7 @@ module github.com/leo/chall-operator
 go 1.24.6
 
 require (
+	github.com/go-chi/chi/v5 v5.2.4
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
 	k8s.io/api v0.34.1

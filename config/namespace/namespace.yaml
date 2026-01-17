@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ctf-operator-system
+  labels:
+    app.kubernetes.io/name: chall-operator
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ctf-instances
+  labels:
+    app.kubernetes.io/name: ctf-instances
+    app.kubernetes.io/managed-by: chall-operator

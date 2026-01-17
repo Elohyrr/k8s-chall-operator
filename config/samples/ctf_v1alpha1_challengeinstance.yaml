@@ -4,6 +4,12 @@ metadata:
   labels:
     app.kubernetes.io/name: chall-operator
     app.kubernetes.io/managed-by: kustomize
-  name: challengeinstance-sample
+    ctf.io/challenge: test-web
+    ctf.io/source: user-123
+  name: test-web-user-123
+  namespace: ctf-instances
 spec:
-  # TODO(user): Add fields here
+  challengeId: "test-web"
+  sourceId: "user-123"
+  challengeName: "test-web"
+  since: "2025-01-17T12:00:00Z"
