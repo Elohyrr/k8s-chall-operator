@@ -32,7 +32,7 @@ func BuildService(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha
 		"app":                          "challenge",
 		"ctf.io/challenge":             instance.Spec.ChallengeID,
 		"ctf.io/instance":              instance.Name,
-		"ctf.io/source":                instance.Spec.SourceID,
+		"ctf.io/source":                SanitizeForLabel(instance.Spec.SourceID),
 		"app.kubernetes.io/name":       "challenge-instance",
 		"app.kubernetes.io/instance":   instance.Name,
 		"app.kubernetes.io/managed-by": "chall-operator",
@@ -42,9 +42,18 @@ func BuildService(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha
 	serviceType := corev1.ServiceTypeNodePort
 	if challenge.Spec.Scenario.ExposeType == "LoadBalancer" {
 		serviceType = corev1.ServiceTypeLoadBalancer
+	} else if challenge.Spec.Scenario.ExposeType == "Ingress" {
+		serviceType = corev1.ServiceTypeClusterIP
 	}
 
-	serviceName := instance.Name + "-svc"
+	serviceName := ServiceName(instance)
+
+	// Determine target port: if auth-proxy is enabled, target port 8888 (auth-proxy)
+	// otherwise target the challenge port directly
+	targetPort := challenge.Spec.Scenario.Port
+	if challenge.Spec.Scenario.AuthProxy != nil && challenge.Spec.Scenario.AuthProxy.Enabled {
+		targetPort = 8888 // Auth proxy listens on 8888
+	}
 
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -59,9 +68,9 @@ func BuildService(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha
 			},
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "challenge",
-					Port:       challenge.Spec.Scenario.Port,
-					TargetPort: intstr.FromInt32(challenge.Spec.Scenario.Port),
+					Name:       "http",
+					Port:       80,
+					TargetPort: intstr.FromInt32(targetPort),
 					Protocol:   corev1.ProtocolTCP,
 				},
 			},

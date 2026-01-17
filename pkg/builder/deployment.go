@@ -92,7 +92,7 @@ func BuildDeployment(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1al
 	challengePort := challenge.Spec.Scenario.Port
 
 	if authProxyEnabled {
-		// Auth proxy listens on port 80, forwards to challenge port
+		// Auth proxy listens on port 8888, forwards to challenge port
 		authProxyImage := "ctf-auth-proxy:simple"
 		if challenge.Spec.Scenario.AuthProxy.Image != "" {
 			authProxyImage = challenge.Spec.Scenario.AuthProxy.Image
@@ -111,11 +111,15 @@ func BuildDeployment(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1al
 					Name:  "TARGET_PORT",
 					Value: fmt.Sprintf("%d", challengePort),
 				},
+				{
+					Name:  "LISTEN_PORT",
+					Value: "8888", // Auth proxy listens on 8888 to avoid conflict with challenge
+				},
 			},
 			Ports: []corev1.ContainerPort{
 				{
 					Name:          "http",
-					ContainerPort: 80,
+					ContainerPort: 8888,
 					Protocol:      corev1.ProtocolTCP,
 				},
 			},

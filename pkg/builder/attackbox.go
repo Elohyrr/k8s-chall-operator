@@ -85,11 +85,15 @@ func BuildAttackBoxDeployment(instance *ctfv1alpha1.ChallengeInstance, challenge
 					Name:  "TARGET_PORT",
 					Value: fmt.Sprintf("%d", ttydPort),
 				},
+				{
+					Name:  "LISTEN_PORT",
+					Value: "8888",
+				},
 			},
 			Ports: []corev1.ContainerPort{
 				{
 					Name:          "http",
-					ContainerPort: 80,
+					ContainerPort: 8888,
 					Protocol:      corev1.ProtocolTCP,
 				},
 			},
@@ -186,10 +190,10 @@ func BuildAttackBoxService(instance *ctfv1alpha1.ChallengeInstance, challenge *c
 		targetPort = challenge.Spec.Scenario.AttackBox.Port
 	}
 
-	// If auth proxy is enabled, target port 80 (auth-proxy), otherwise ttyd port
+	// If auth proxy is enabled, target port 8888 (auth-proxy), otherwise ttyd port
 	serviceTargetPort := targetPort
 	if challenge.Spec.Scenario.AuthProxy != nil && challenge.Spec.Scenario.AuthProxy.Enabled {
-		serviceTargetPort = 80
+		serviceTargetPort = 8888
 	}
 
 	return &corev1.Service{

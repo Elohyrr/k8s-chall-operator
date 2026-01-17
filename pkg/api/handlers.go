@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,6 +33,19 @@ import (
 
 	ctfv1alpha1 "github.com/leo/chall-operator/api/v1alpha1"
 )
+
+// sanitizeName converts a string to be DNS-safe for Kubernetes resource names
+// Example: "alice@ctf.local" -> "alice-at-ctf-local"
+func sanitizeName(s string) string {
+	result := strings.ReplaceAll(s, "@", "-at-")
+	result = strings.ReplaceAll(result, ".", "-")
+	result = strings.ToLower(result)
+	// Truncate to 63 chars (K8s name limit)
+	if len(result) > 63 {
+		result = result[:63]
+	}
+	return result
+}
 
 // Handler handles HTTP requests for the CTFd-compatible API
 type Handler struct {
@@ -90,8 +104,9 @@ func (h *Handler) CreateInstance(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 
-	// Generate instance name from challenge and source IDs
-	instanceName := fmt.Sprintf("%s-%s", req.ChallengeID, req.SourceID)
+	// Generate instance name from challenge and source IDs (sanitized for K8s)
+	sanitizedSourceID := sanitizeName(req.SourceID)
+	instanceName := fmt.Sprintf("%s-%s", req.ChallengeID, sanitizedSourceID)
 
 	// Check if instance already exists
 	existingInstance := &ctfv1alpha1.ChallengeInstance{}
@@ -129,7 +144,7 @@ func (h *Handler) CreateInstance(w http.ResponseWriter, r *http.Request) {
 			Namespace: h.namespace,
 			Labels: map[string]string{
 				"ctf.io/challenge": req.ChallengeID,
-				"ctf.io/source":    req.SourceID,
+				"ctf.io/source":    sanitizedSourceID,
 			},
 		},
 		Spec: ctfv1alpha1.ChallengeInstanceSpec{
@@ -204,7 +219,7 @@ func (h *Handler) GetInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceName := fmt.Sprintf("%s-%s", challengeID, sourceID)
+	instanceName := fmt.Sprintf("%s-%s", challengeID, sanitizeName(sourceID))
 
 	instance := &ctfv1alpha1.ChallengeInstance{}
 	if err := h.client.Get(context.Background(), types.NamespacedName{
@@ -228,7 +243,7 @@ func (h *Handler) DeleteInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceName := fmt.Sprintf("%s-%s", challengeID, sourceID)
+	instanceName := fmt.Sprintf("%s-%s", challengeID, sanitizeName(sourceID))
 
 	instance := &ctfv1alpha1.ChallengeInstance{}
 	ctx := context.Background()
@@ -261,7 +276,7 @@ func (h *Handler) ListInstances(w http.ResponseWriter, r *http.Request) {
 
 	if sourceID != "" {
 		listOpts = append(listOpts, client.MatchingLabels{
-			"ctf.io/source": sourceID,
+			"ctf.io/source": sanitizeName(sourceID),
 		})
 	}
 
@@ -306,7 +321,7 @@ func (h *Handler) ValidateFlag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceName := fmt.Sprintf("%s-%s", challengeID, sourceID)
+	instanceName := fmt.Sprintf("%s-%s", challengeID, sanitizeName(sourceID))
 	ctx := context.Background()
 
 	instance := &ctfv1alpha1.ChallengeInstance{}
@@ -360,7 +375,7 @@ func (h *Handler) RenewInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceName := fmt.Sprintf("%s-%s", challengeID, sourceID)
+	instanceName := fmt.Sprintf("%s-%s", challengeID, sanitizeName(sourceID))
 	ctx := context.Background()
 
 	instance := &ctfv1alpha1.ChallengeInstance{}
