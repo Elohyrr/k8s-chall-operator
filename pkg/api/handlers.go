@@ -66,10 +66,29 @@ func NewHandler(c client.Client) *Handler {
 }
 
 // CreateInstanceRequest represents the request body for creating an instance
+// Supports both snake_case (our format) and camelCase (chall-manager format)
 type CreateInstanceRequest struct {
-	ChallengeID string            `json:"challenge_id"`
-	SourceID    string            `json:"source_id"`
-	Additional  map[string]string `json:"additional,omitempty"`
+	ChallengeID      string            `json:"challenge_id"`
+	SourceID         string            `json:"source_id"`
+	ChallengeIDCamel string            `json:"challengeId"`
+	SourceIDCamel    string            `json:"sourceId"`
+	Additional       map[string]string `json:"additional,omitempty"`
+}
+
+// GetChallengeID returns the challenge ID from either format
+func (r *CreateInstanceRequest) GetChallengeID() string {
+	if r.ChallengeID != "" {
+		return r.ChallengeID
+	}
+	return r.ChallengeIDCamel
+}
+
+// GetSourceID returns the source ID from either format
+func (r *CreateInstanceRequest) GetSourceID() string {
+	if r.SourceID != "" {
+		return r.SourceID
+	}
+	return r.SourceIDCamel
 }
 
 // InstanceResponse represents the response for instance operations
@@ -97,16 +116,20 @@ func (h *Handler) CreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.ChallengeID == "" || req.SourceID == "" {
-		h.writeError(w, http.StatusBadRequest, "Missing required fields", "challenge_id and source_id are required")
+	// Get IDs from either format (snake_case or camelCase)
+	challengeID := req.GetChallengeID()
+	sourceID := req.GetSourceID()
+
+	if challengeID == "" || sourceID == "" {
+		h.writeError(w, http.StatusBadRequest, "Missing required fields", "challenge_id/challengeId and source_id/sourceId are required")
 		return
 	}
 
 	ctx := context.Background()
 
 	// Generate instance name from challenge and source IDs (sanitized for K8s)
-	sanitizedSourceID := sanitizeName(req.SourceID)
-	instanceName := fmt.Sprintf("%s-%s", req.ChallengeID, sanitizedSourceID)
+	sanitizedSourceID := sanitizeName(sourceID)
+	instanceName := fmt.Sprintf("%s-%s", challengeID, sanitizedSourceID)
 
 	// Check if instance already exists
 	existingInstance := &ctfv1alpha1.ChallengeInstance{}
@@ -126,7 +149,7 @@ func (h *Handler) CreateInstance(w http.ResponseWriter, r *http.Request) {
 	timeout := int64(600)
 	challenge := &ctfv1alpha1.Challenge{}
 	if err := h.client.Get(ctx, types.NamespacedName{
-		Name:      req.ChallengeID,
+		Name:      challengeID,
 		Namespace: h.namespace,
 	}, challenge); err == nil {
 		if challenge.Spec.Timeout > 0 {
@@ -143,14 +166,14 @@ func (h *Handler) CreateInstance(w http.ResponseWriter, r *http.Request) {
 			Name:      instanceName,
 			Namespace: h.namespace,
 			Labels: map[string]string{
-				"ctf.io/challenge": req.ChallengeID,
+				"ctf.io/challenge": challengeID,
 				"ctf.io/source":    sanitizedSourceID,
 			},
 		},
 		Spec: ctfv1alpha1.ChallengeInstanceSpec{
-			ChallengeID:   req.ChallengeID,
-			SourceID:      req.SourceID,
-			ChallengeName: req.ChallengeID, // Assume Challenge name = challengeID
+			ChallengeID:   challengeID,
+			SourceID:      sourceID,
+			ChallengeName: challengeID, // Assume Challenge name = challengeID
 			Additional:    req.Additional,
 			Since:         now,
 			Until:         &until,
@@ -265,9 +288,13 @@ func (h *Handler) DeleteInstance(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ListInstances handles GET /api/v1/instance (query by source_id)
+// ListInstances handles GET /api/v1/instance (query by source_id or sourceId)
 func (h *Handler) ListInstances(w http.ResponseWriter, r *http.Request) {
+	// Support both snake_case and camelCase query params
 	sourceID := r.URL.Query().Get("source_id")
+	if sourceID == "" {
+		sourceID = r.URL.Query().Get("sourceId")
+	}
 
 	instanceList := &ctfv1alpha1.ChallengeInstanceList{}
 	listOpts := []client.ListOption{

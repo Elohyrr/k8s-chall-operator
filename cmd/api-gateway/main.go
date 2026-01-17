@@ -71,6 +71,7 @@ func main() {
 		r.Get("/instance", handler.ListInstances)
 		r.Get("/instance/{challengeId}/{sourceId}", handler.GetInstance)
 		r.Delete("/instance/{challengeId}/{sourceId}", handler.DeleteInstance)
+		r.Patch("/instance/{challengeId}/{sourceId}", handler.RenewInstance) // CTFd plugin uses PATCH for renew
 		r.Post("/instance/{challengeId}/{sourceId}/validate", handler.ValidateFlag)
 		r.Post("/instance/{challengeId}/{sourceId}/renew", handler.RenewInstance)
 	})
