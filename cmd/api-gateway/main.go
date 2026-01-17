@@ -60,9 +60,10 @@ func main() {
 	r.Use(middleware.RequestID)
 	r.Use(corsMiddleware)
 
-	// Health check
+	// Health check (multiple routes for compatibility)
 	r.Get("/health", handler.Health)
 	r.Get("/healthz", handler.Health)
+	r.Get("/healthcheck", handler.Health)
 
 	// CTFd-compatible API endpoints
 	r.Route("/api/v1", func(r chi.Router) {
