@@ -322,13 +322,19 @@ func (h *Handler) ListInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	responses := make([]InstanceResponse, 0, len(instanceList.Items))
-	for _, instance := range instanceList.Items {
-		responses = append(responses, h.buildInstanceResponse(&instance))
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(responses)
+
+	// Return instances in streaming format (one {"result": {...}} per line)
+	// This matches the format expected by the CTFd plugin
+	for _, instance := range instanceList.Items {
+		response := h.buildInstanceResponse(&instance)
+		result := map[string]interface{}{
+			"result": response,
+		}
+		data, _ := json.Marshal(result)
+		w.Write(data)
+		w.Write([]byte("\n"))
+	}
 }
 
 // ValidateFlagRequest represents the request body for flag validation
