@@ -533,6 +533,7 @@ type ChallengeResponse struct {
 // CreateChallenge handles POST /api/v1/challenge
 // In GitOps mode: just verifies the Challenge CRD exists (doesn't create it)
 // The Challenge should be created manually via kubectl/ArgoCD
+// Uses the "scenario" field as the Challenge ID (ignores CTFd auto-incremented ID)
 func (h *Handler) CreateChallenge(w http.ResponseWriter, r *http.Request) {
 	var req CreateChallengeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -540,8 +541,10 @@ func (h *Handler) CreateChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.ID == "" {
-		h.writeError(w, http.StatusBadRequest, "Missing required field", "id is required")
+	// Use scenario as the Challenge ID (GitOps: scenario = Challenge CRD name)
+	challengeID := req.Scenario
+	if challengeID == "" {
+		h.writeError(w, http.StatusBadRequest, "Missing required field", "scenario is required")
 		return
 	}
 
@@ -550,19 +553,19 @@ func (h *Handler) CreateChallenge(w http.ResponseWriter, r *http.Request) {
 	// GitOps mode: Challenge must already exist
 	existingChallenge := &ctfv1alpha1.Challenge{}
 	err := h.client.Get(ctx, types.NamespacedName{
-		Name:      req.ID,
+		Name:      challengeID,
 		Namespace: h.namespace,
 	}, existingChallenge)
 
 	if err != nil {
 		// Challenge doesn't exist - in GitOps mode, this is an error
-		log.Printf("Challenge %s not found (GitOps mode: create it manually with kubectl)", req.ID)
-		h.writeError(w, http.StatusNotFound, "Challenge not found", fmt.Sprintf("Challenge %s must be created manually via kubectl/ArgoCD before creating it in CTFd", req.ID))
+		log.Printf("Challenge %s not found (GitOps mode: create it manually with kubectl). CTFd ID: %s", challengeID, req.ID)
+		h.writeError(w, http.StatusNotFound, "Challenge not found", fmt.Sprintf("Challenge %s must be created manually via kubectl/ArgoCD before creating it in CTFd", challengeID))
 		return
 	}
 
 	// Challenge exists, return it
-	log.Printf("Challenge %s found (GitOps mode)", req.ID)
+	log.Printf("Challenge %s found (GitOps mode). CTFd ID: %s", challengeID, req.ID)
 	w.WriteHeader(http.StatusOK)
 	h.writeChallengeResponse(w, existingChallenge)
 }
