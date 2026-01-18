@@ -336,7 +336,6 @@ func (h *Handler) ListInstances(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("\n"))
 	}
 }
-}
 
 // ValidateFlagRequest represents the request body for flag validation
 type ValidateFlagRequest struct {
