@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -483,12 +484,36 @@ func (h *Handler) buildInstanceResponse(instance *ctfv1alpha1.ChallengeInstance)
 	return resp
 }
 
+// FlexibleInt64 can unmarshal from both string and int
+type FlexibleInt64 int64
+
+func (f *FlexibleInt64) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as int first
+	var i int64
+	if err := json.Unmarshal(data, &i); err == nil {
+		*f = FlexibleInt64(i)
+		return nil
+	}
+	// Try as string
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	// Parse string to int
+	i, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return err
+	}
+	*f = FlexibleInt64(i)
+	return nil
+}
+
 // CreateChallengeRequest represents the request body for creating a challenge
 // Supports both formats from CTFd plugin
 type CreateChallengeRequest struct {
-	ID       string `json:"id"`
-	Scenario string `json:"scenario"` // Image reference (e.g. registry.local:5000/chal1:latest)
-	Timeout  int64  `json:"timeout"`
+	ID       string        `json:"id"`
+	Scenario string        `json:"scenario"` // Image reference (e.g. registry.local:5000/chal1:latest)
+	Timeout  FlexibleInt64 `json:"timeout"`
 	// Additional fields from CTFd
 	DestroyOnFlag bool `json:"destroy_on_flag"`
 	Shared        bool `json:"shared"`
@@ -532,7 +557,7 @@ func (h *Handler) CreateChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Default timeout
-	timeout := req.Timeout
+	timeout := int64(req.Timeout)
 	if timeout == 0 {
 		timeout = 600
 	}
@@ -625,7 +650,7 @@ func (h *Handler) UpdateChallenge(w http.ResponseWriter, r *http.Request) {
 		challenge.Spec.Scenario.Image = req.Scenario
 	}
 	if req.Timeout > 0 {
-		challenge.Spec.Timeout = req.Timeout
+		challenge.Spec.Timeout = int64(req.Timeout)
 	}
 
 	if err := h.client.Update(ctx, challenge); err != nil {

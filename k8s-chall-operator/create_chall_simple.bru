@@ -1,0 +1,40 @@
+meta {
+  name: create_chall_simple
+  type: http
+  seq: 2
+}
+
+post {
+  url: http://ctf.devleo.local/api/v1/challenges
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Token {{TOKEN}}
+}
+
+body:json {
+  {
+    "name": "Web Basic",
+    "category": "web",
+    "type": "dynamic_iac",
+    "value": 100,
+    "state": "visible",
+    "timeout": 300,
+    "scenario": "100",
+    "initial": 100,
+    "decay": 10,
+    "minimum": 10,
+    "function": "linear",
+    "mana_cost": 1,
+    "shared": false,
+    "destroy_on_flag": true
+  }
+}
+
+settings {
+  encodeUrl: false
+  timeout: 0
+}
