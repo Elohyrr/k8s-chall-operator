@@ -22,7 +22,7 @@ spec:
       serviceAccountName: chall-operator-controller-manager
       containers:
       - name: api-gateway
-        image: chall-operator-gateway:latest
+        image: ghcr.io/elohyrr/chall-operator-gateway:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080

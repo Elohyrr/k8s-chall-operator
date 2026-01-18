@@ -241,12 +241,21 @@ func (r *ChallengeInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				log.Error(err, "Failed to create Ingress")
 				return ctrl.Result{}, err
 			}
-			// Update connection info with Ingress hostname
+		}
+
+		// Always set connection info when Ingress is enabled (whether just created or already exists)
+		// Only update if not already set to avoid overwriting
+		if instance.Status.ConnectionInfo == "" {
 			hostname := builder.GetIngressHostname(instance, challenge)
 			if hostname != "" {
 				instance.Status.ConnectionInfo = fmt.Sprintf("http://%s", hostname)
 				if challenge.Spec.Scenario.AttackBox != nil && challenge.Spec.Scenario.AttackBox.Enabled {
 					instance.Status.ConnectionInfo = fmt.Sprintf("Challenge: http://%s\nTerminal: http://%s/terminal", hostname, hostname)
+				}
+				log.Info("Set connectionInfo for instance", "instance", instance.Name, "connectionInfo", instance.Status.ConnectionInfo)
+				// Persist connectionInfo immediately
+				if err := r.Status().Update(ctx, instance); err != nil {
+					log.Error(err, "Failed to update instance status with connectionInfo")
 				}
 			}
 		}
@@ -278,11 +287,14 @@ func (r *ChallengeInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					instance.Status.Phase = "Running"
 					instance.Status.Ready = true
 
-					// Update connection info from service
-					if err := r.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, existingService); err == nil {
-						connInfo := builder.GetConnectionInfo(existingService, r.getNodeIP())
-						if connInfo != "" {
-							instance.Status.ConnectionInfo = connInfo
+					// Only update connection info if not already set (by Ingress)
+					if instance.Status.ConnectionInfo == "" {
+						// Fallback to Service connection info (for non-Ingress challenges)
+						if err := r.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, existingService); err == nil {
+							connInfo := builder.GetConnectionInfo(existingService, r.getNodeIP())
+							if connInfo != "" {
+								instance.Status.ConnectionInfo = connInfo
+							}
 						}
 					}
 

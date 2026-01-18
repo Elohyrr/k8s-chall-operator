@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	ctfv1alpha1 "github.com/leo/chall-operator/api/v1alpha1"
+	"github.com/leo/chall-operator/pkg/builder"
 )
 
 // sanitizeName converts a string to be DNS-safe for Kubernetes resource names
@@ -96,7 +97,7 @@ func (r *CreateInstanceRequest) GetSourceID() string {
 type InstanceResponse struct {
 	ChallengeID    string   `json:"challenge_id"`
 	SourceID       string   `json:"source_id"`
-	ConnectionInfo string   `json:"connection_info"`
+	ConnectionInfo string   `json:"connectionInfo"`
 	Flags          []string `json:"flags,omitempty"`
 	Flag           string   `json:"flag,omitempty"` // Deprecated but kept for compatibility
 	Since          string   `json:"since"`
@@ -129,8 +130,9 @@ func (h *Handler) CreateInstance(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 
 	// Generate instance name from challenge and source IDs (sanitized for K8s)
+	// Prefix with "chal-" to ensure DNS-1035 compliance (must start with letter)
 	sanitizedSourceID := sanitizeName(sourceID)
-	instanceName := fmt.Sprintf("%s-%s", challengeID, sanitizedSourceID)
+	instanceName := fmt.Sprintf("chal-%s-%s", challengeID, sanitizedSourceID)
 
 	// Check if instance already exists
 	existingInstance := &ctfv1alpha1.ChallengeInstance{}
@@ -243,7 +245,7 @@ func (h *Handler) GetInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceName := fmt.Sprintf("%s-%s", challengeID, sanitizeName(sourceID))
+	instanceName := fmt.Sprintf("chal-%s-%s", challengeID, sanitizeName(sourceID))
 
 	instance := &ctfv1alpha1.ChallengeInstance{}
 	if err := h.client.Get(context.Background(), types.NamespacedName{
@@ -267,7 +269,7 @@ func (h *Handler) DeleteInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceName := fmt.Sprintf("%s-%s", challengeID, sanitizeName(sourceID))
+	instanceName := fmt.Sprintf("chal-%s-%s", challengeID, sanitizeName(sourceID))
 
 	instance := &ctfv1alpha1.ChallengeInstance{}
 	ctx := context.Background()
@@ -286,7 +288,14 @@ func (h *Handler) DeleteInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Deleted instance %s", instanceName)
-	w.WriteHeader(http.StatusNoContent)
+
+	// Return success response for CTFd compatibility
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Instance deleted successfully",
+	})
 }
 
 // ListInstances handles GET /api/v1/instance (query by source_id or sourceId)
@@ -349,7 +358,7 @@ func (h *Handler) ValidateFlag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceName := fmt.Sprintf("%s-%s", challengeID, sanitizeName(sourceID))
+	instanceName := fmt.Sprintf("chal-%s-%s", challengeID, sanitizeName(sourceID))
 	ctx := context.Background()
 
 	instance := &ctfv1alpha1.ChallengeInstance{}
@@ -403,7 +412,7 @@ func (h *Handler) RenewInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceName := fmt.Sprintf("%s-%s", challengeID, sanitizeName(sourceID))
+	instanceName := fmt.Sprintf("chal-%s-%s", challengeID, sanitizeName(sourceID))
 	ctx := context.Background()
 
 	instance := &ctfv1alpha1.ChallengeInstance{}
@@ -470,6 +479,26 @@ func (h *Handler) buildInstanceResponse(instance *ctfv1alpha1.ChallengeInstance)
 		ConnectionInfo: instance.Status.ConnectionInfo,
 		Flags:          instance.Status.Flags,
 		Since:          instance.Spec.Since.Format(time.RFC3339),
+	}
+
+	// Calculate connectionInfo if not already set by controller
+	if resp.ConnectionInfo == "" {
+		// Get Challenge to check for Ingress config
+		challenge := &ctfv1alpha1.Challenge{}
+		if err := h.client.Get(context.Background(), types.NamespacedName{
+			Name:      instance.Spec.ChallengeID,
+			Namespace: h.namespace,
+		}, challenge); err == nil {
+			// Generate hostname using builder
+			hostname := builder.GetIngressHostname(instance, challenge)
+			if hostname != "" {
+				if challenge.Spec.Scenario.AttackBox != nil && challenge.Spec.Scenario.AttackBox.Enabled {
+					resp.ConnectionInfo = fmt.Sprintf("Challenge: http://%s\nTerminal: http://%s/terminal", hostname, hostname)
+				} else {
+					resp.ConnectionInfo = fmt.Sprintf("http://%s", hostname)
+				}
+			}
+		}
 	}
 
 	// Set deprecated Flag field for backwards compatibility
