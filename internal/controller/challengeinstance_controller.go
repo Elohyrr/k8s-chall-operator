@@ -112,28 +112,28 @@ func (r *ChallengeInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Ensure Deployment
-	if res, err := r.ensureDeployment(ctx, instance, challenge); err != nil || res.Requeue {
-		return res, err
+	if err := r.ensureDeployment(ctx, instance, challenge); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure Service
-	if res, err := r.ensureService(ctx, instance, challenge); err != nil || res.Requeue {
-		return res, err
+	if err := r.ensureService(ctx, instance, challenge); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure AttackBox deployment & service if enabled
-	if res, err := r.ensureAttackBox(ctx, instance, challenge); err != nil || res.Requeue {
-		return res, err
+	if err := r.ensureAttackBox(ctx, instance, challenge); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure Ingress
-	if res, err := r.ensureIngress(ctx, instance, challenge); err != nil || res.Requeue {
-		return res, err
+	if err := r.ensureIngress(ctx, instance, challenge); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure NetworkPolicy
-	if res, err := r.ensureNetworkPolicy(ctx, instance, challenge); err != nil || res.Requeue {
-		return res, err
+	if err := r.ensureNetworkPolicy(ctx, instance, challenge); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Check if Deployment is ready & update status
@@ -146,13 +146,13 @@ func (r *ChallengeInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 }
 
 // ensureDeployment creates/updates the primary Deployment for the instance
-func (r *ChallengeInstanceReconciler) ensureDeployment(ctx context.Context, instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) (ctrl.Result, error) {
+func (r *ChallengeInstanceReconciler) ensureDeployment(ctx context.Context, instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) error {
 	log := logf.FromContext(ctx)
 
 	deployment := builder.BuildDeployment(instance, challenge)
 	if err := controllerutil.SetControllerReference(instance, deployment, r.Scheme); err != nil {
 		log.Error(err, "Failed to set owner reference on Deployment")
-		return ctrl.Result{}, err
+		return err
 	}
 
 	existingDeployment := &appsv1.Deployment{}
@@ -162,29 +162,29 @@ func (r *ChallengeInstanceReconciler) ensureDeployment(ctx context.Context, inst
 			log.Info("Creating Deployment", "deployment", deployment.Name)
 			if err := r.Create(ctx, deployment); err != nil {
 				log.Error(err, "Failed to create Deployment")
-				return ctrl.Result{}, err
+				return err
 			}
 			instance.Status.DeploymentName = deployment.Name
 			if err := r.Status().Update(ctx, instance); err != nil {
 				log.Error(err, "Failed to update instance status with deployment name")
-				return ctrl.Result{}, err
+				return err
 			}
 		} else {
 			log.Error(err, "Failed to get Deployment")
-			return ctrl.Result{}, err
+			return err
 		}
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // ensureService creates/updates the Service for the instance and updates connection info if needed
-func (r *ChallengeInstanceReconciler) ensureService(ctx context.Context, instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) (ctrl.Result, error) {
+func (r *ChallengeInstanceReconciler) ensureService(ctx context.Context, instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) error {
 	log := logf.FromContext(ctx)
 
 	service := builder.BuildService(instance, challenge)
 	if err := controllerutil.SetControllerReference(instance, service, r.Scheme); err != nil {
 		log.Error(err, "Failed to set owner reference on Service")
-		return ctrl.Result{}, err
+		return err
 	}
 
 	existingService := &corev1.Service{}
@@ -194,16 +194,16 @@ func (r *ChallengeInstanceReconciler) ensureService(ctx context.Context, instanc
 			log.Info("Creating Service", "service", service.Name)
 			if err := r.Create(ctx, service); err != nil {
 				log.Error(err, "Failed to create Service")
-				return ctrl.Result{}, err
+				return err
 			}
 			instance.Status.ServiceName = service.Name
 			if err := r.Status().Update(ctx, instance); err != nil {
 				log.Error(err, "Failed to update instance status with service name")
-				return ctrl.Result{}, err
+				return err
 			}
 		} else {
 			log.Error(err, "Failed to get Service")
-			return ctrl.Result{}, err
+			return err
 		}
 	} else {
 		// Service exists, update connection info if NodePort/LoadBalancer is assigned
@@ -212,21 +212,21 @@ func (r *ChallengeInstanceReconciler) ensureService(ctx context.Context, instanc
 			instance.Status.ConnectionInfo = connInfo
 			if err := r.Status().Update(ctx, instance); err != nil {
 				log.Error(err, "Failed to update connection info")
-				return ctrl.Result{}, err
+				return err
 			}
 		}
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // ensureAttackBox creates attackbox deployment and service if configured
-func (r *ChallengeInstanceReconciler) ensureAttackBox(ctx context.Context, instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) (ctrl.Result, error) {
+func (r *ChallengeInstanceReconciler) ensureAttackBox(ctx context.Context, instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) error {
 	log := logf.FromContext(ctx)
 
 	if attackBoxDeploy := builder.BuildAttackBoxDeployment(instance, challenge); attackBoxDeploy != nil {
 		if err := controllerutil.SetControllerReference(instance, attackBoxDeploy, r.Scheme); err != nil {
 			log.Error(err, "Failed to set owner reference on AttackBox Deployment")
-			return ctrl.Result{}, err
+			return err
 		}
 
 		existingAttackBox := &appsv1.Deployment{}
@@ -235,18 +235,18 @@ func (r *ChallengeInstanceReconciler) ensureAttackBox(ctx context.Context, insta
 			log.Info("Creating AttackBox Deployment", "deployment", attackBoxDeploy.Name)
 			if err := r.Create(ctx, attackBoxDeploy); err != nil {
 				log.Error(err, "Failed to create AttackBox Deployment")
-				return ctrl.Result{}, err
+				return err
 			}
 		} else if err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to get AttackBox Deployment")
-			return ctrl.Result{}, err
+			return err
 		}
 	}
 
 	if attackBoxSvc := builder.BuildAttackBoxService(instance, challenge); attackBoxSvc != nil {
 		if err := controllerutil.SetControllerReference(instance, attackBoxSvc, r.Scheme); err != nil {
 			log.Error(err, "Failed to set owner reference on AttackBox Service")
-			return ctrl.Result{}, err
+			return err
 		}
 
 		existingAttackBoxSvc := &corev1.Service{}
@@ -255,25 +255,25 @@ func (r *ChallengeInstanceReconciler) ensureAttackBox(ctx context.Context, insta
 			log.Info("Creating AttackBox Service", "service", attackBoxSvc.Name)
 			if err := r.Create(ctx, attackBoxSvc); err != nil {
 				log.Error(err, "Failed to create AttackBox Service")
-				return ctrl.Result{}, err
+				return err
 			}
 		} else if err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to get AttackBox Service")
-			return ctrl.Result{}, err
+			return err
 		}
 	}
 
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // ensureIngress creates ingress if configured and updates connection info
-func (r *ChallengeInstanceReconciler) ensureIngress(ctx context.Context, instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) (ctrl.Result, error) {
+func (r *ChallengeInstanceReconciler) ensureIngress(ctx context.Context, instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) error {
 	log := logf.FromContext(ctx)
 
 	if ingress := builder.BuildIngress(instance, challenge); ingress != nil {
 		if err := controllerutil.SetControllerReference(instance, ingress, r.Scheme); err != nil {
 			log.Error(err, "Failed to set owner reference on Ingress")
-			return ctrl.Result{}, err
+			return err
 		}
 
 		existingIngress := &networkingv1.Ingress{}
@@ -282,7 +282,7 @@ func (r *ChallengeInstanceReconciler) ensureIngress(ctx context.Context, instanc
 			log.Info("Creating Ingress", "ingress", ingress.Name)
 			if err := r.Create(ctx, ingress); err != nil {
 				log.Error(err, "Failed to create Ingress")
-				return ctrl.Result{}, err
+				return err
 			}
 		}
 
@@ -298,7 +298,7 @@ func (r *ChallengeInstanceReconciler) ensureIngress(ctx context.Context, instanc
 				}
 				if err := r.Status().Update(ctx, instance); err != nil {
 					log.Error(err, "Failed to update instance connection info after creating Ingress")
-					return ctrl.Result{}, err
+					return err
 				}
 				log.Info("Set connectionInfo for instance", "instance", instance.Name, "connectionInfo", instance.Status.ConnectionInfo)
 				// Persist connectionInfo immediately
@@ -308,20 +308,20 @@ func (r *ChallengeInstanceReconciler) ensureIngress(ctx context.Context, instanc
 			}
 		} else if err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to get Ingress")
-			return ctrl.Result{}, err
+			return err
 		}
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // ensureNetworkPolicy creates networkpolicy if configured
-func (r *ChallengeInstanceReconciler) ensureNetworkPolicy(ctx context.Context, instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) (ctrl.Result, error) {
+func (r *ChallengeInstanceReconciler) ensureNetworkPolicy(ctx context.Context, instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) error {
 	log := logf.FromContext(ctx)
 
 	if netpol := builder.BuildNetworkPolicy(instance, challenge); netpol != nil {
 		if err := controllerutil.SetControllerReference(instance, netpol, r.Scheme); err != nil {
 			log.Error(err, "Failed to set owner reference on NetworkPolicy")
-			return ctrl.Result{}, err
+			return err
 		}
 
 		existingNetpol := &networkingv1.NetworkPolicy{}
@@ -330,14 +330,14 @@ func (r *ChallengeInstanceReconciler) ensureNetworkPolicy(ctx context.Context, i
 			log.Info("Creating NetworkPolicy", "networkpolicy", netpol.Name)
 			if err := r.Create(ctx, netpol); err != nil {
 				log.Error(err, "Failed to create NetworkPolicy")
-				return ctrl.Result{}, err
+				return err
 			}
 		} else if err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to get NetworkPolicy")
-			return ctrl.Result{}, err
+			return err
 		}
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // checkAndUpdateReady checks deployment readiness and updates instance status accordingly

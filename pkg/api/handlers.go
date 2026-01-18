@@ -292,10 +292,12 @@ func (h *Handler) DeleteInstance(w http.ResponseWriter, r *http.Request) {
 	// Return success response for CTFd compatibility
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Instance deleted successfully",
-	})
+	}); err != nil {
+		log.Printf("handlers: encode response: %v", err)
+	}
 }
 
 // ListInstances handles GET /api/v1/instance (query by source_id or sourceId)
@@ -331,9 +333,17 @@ func (h *Handler) ListInstances(w http.ResponseWriter, r *http.Request) {
 		result := map[string]interface{}{
 			"result": response,
 		}
-		data, _ := json.Marshal(result)
-		w.Write(data)
-		w.Write([]byte("\n"))
+		data, err := json.Marshal(result)
+		if err != nil {
+			log.Printf("handlers: marshal response: %v", err)
+			continue
+		}
+		if _, err := w.Write(data); err != nil {
+			log.Printf("handlers: write data: %v", err)
+		}
+		if _, err := w.Write([]byte("\n")); err != nil {
+			log.Printf("handlers: write newline: %v", err)
+		}
 	}
 }
 
@@ -406,7 +416,7 @@ func (h *Handler) ValidateFlag(w http.ResponseWriter, r *http.Request) {
 		"message": "Flag correct! Instance will be cleaned up.",
 	}); err != nil {
 		log.Printf("handlers: encode responses: %v", err)
-    	http.Error(w, "internal server error", http.StatusInternalServerError)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 	}
 }
 
@@ -723,7 +733,9 @@ func (h *Handler) DeleteChallenge(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Deleted challenge %s and its instances", challengeID)
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "deleted"}); err != nil {
+		log.Printf("handlers: encode response: %v", err)
+	}
 }
 
 // ListChallenges handles GET /api/v1/challenge
@@ -744,7 +756,9 @@ func (h *Handler) ListChallenges(w http.ResponseWriter, r *http.Request) {
 				Timeout:  challenge.Spec.Timeout,
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Printf("handlers: encode challenge: %v", err)
+		}
 	}
 }
 

@@ -33,7 +33,7 @@ import (
 func BuildNetworkPolicy(
 	instance *ctfv1alpha1.ChallengeInstance,
 	challenge *ctfv1alpha1.Challenge,
-	) *networkingv1.NetworkPolicy {
+) *networkingv1.NetworkPolicy {
 	// Only create NetworkPolicy if AttackBox is enabled and NetworkPolicy is configured
 	if challenge.Spec.Scenario.AttackBox == nil || !challenge.Spec.Scenario.AttackBox.Enabled {
 		return nil
