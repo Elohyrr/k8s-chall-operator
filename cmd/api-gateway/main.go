@@ -67,6 +67,13 @@ func main() {
 
 	// CTFd-compatible API endpoints
 	r.Route("/api/v1", func(r chi.Router) {
+		// Challenge management (CRD CRUD)
+		r.Post("/challenge", handler.CreateChallenge)
+		r.Get("/challenge", handler.ListChallenges)
+		r.Get("/challenge/{challengeId}", handler.GetChallenge)
+		r.Patch("/challenge/{challengeId}", handler.UpdateChallenge)
+		r.Delete("/challenge/{challengeId}", handler.DeleteChallenge)
+
 		// Instance management
 		r.Post("/instance", handler.CreateInstance)
 		r.Get("/instance", handler.ListInstances)

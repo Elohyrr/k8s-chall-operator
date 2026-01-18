@@ -48,7 +48,7 @@ type ChallengeInstanceReconciler struct {
 // +kubebuilder:rbac:groups=ctf.ctf.io,resources=challengeinstances,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=ctf.ctf.io,resources=challengeinstances/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ctf.ctf.io,resources=challengeinstances/finalizers,verbs=update
-// +kubebuilder:rbac:groups=ctf.ctf.io,resources=challenges,verbs=get;list;watch
+// +kubebuilder:rbac:groups=ctf.ctf.io,resources=challenges,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete

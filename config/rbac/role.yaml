@@ -32,6 +32,7 @@ rules:
   - ctf.ctf.io
   resources:
   - challengeinstances
+  - challenges
   verbs:
   - create
   - delete
@@ -54,14 +55,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - ctf.ctf.io
-  resources:
-  - challenges
-  verbs:
-  - get
-  - list
-  - watch
 - apiGroups:
   - networking.k8s.io
   resources:

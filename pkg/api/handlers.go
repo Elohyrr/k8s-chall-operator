@@ -482,3 +482,231 @@ func (h *Handler) buildInstanceResponse(instance *ctfv1alpha1.ChallengeInstance)
 
 	return resp
 }
+
+// CreateChallengeRequest represents the request body for creating a challenge
+// Supports both formats from CTFd plugin
+type CreateChallengeRequest struct {
+	ID       string `json:"id"`
+	Scenario string `json:"scenario"` // Image reference (e.g. registry.local:5000/chal1:latest)
+	Timeout  int64  `json:"timeout"`
+	// Additional fields from CTFd
+	DestroyOnFlag bool `json:"destroy_on_flag"`
+	Shared        bool `json:"shared"`
+}
+
+// ChallengeResponse represents the response for challenge operations
+type ChallengeResponse struct {
+	ID       string `json:"id"`
+	Scenario string `json:"scenario"`
+	Timeout  int64  `json:"timeout"`
+}
+
+// CreateChallenge handles POST /api/v1/challenge
+// Creates a Challenge CRD from CTFd plugin request
+func (h *Handler) CreateChallenge(w http.ResponseWriter, r *http.Request) {
+	var req CreateChallengeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+
+	if req.ID == "" {
+		h.writeError(w, http.StatusBadRequest, "Missing required field", "id is required")
+		return
+	}
+
+	ctx := context.Background()
+
+	// Check if challenge already exists
+	existingChallenge := &ctfv1alpha1.Challenge{}
+	err := h.client.Get(ctx, types.NamespacedName{
+		Name:      req.ID,
+		Namespace: h.namespace,
+	}, existingChallenge)
+
+	if err == nil {
+		// Challenge already exists, return it
+		log.Printf("Challenge %s already exists", req.ID)
+		h.writeChallengeResponse(w, existingChallenge)
+		return
+	}
+
+	// Default timeout
+	timeout := req.Timeout
+	if timeout == 0 {
+		timeout = 600
+	}
+
+	// Default flag template
+	flagTemplate := `FLAG{{"{"}}{{.ChallengeID}}_{{.RandomString}}{{"}"}}`
+
+	// Create Challenge CRD
+	challenge := &ctfv1alpha1.Challenge{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      req.ID,
+			Namespace: h.namespace,
+			Labels: map[string]string{
+				"ctf.io/challenge":             req.ID,
+				"app.kubernetes.io/managed-by": "chall-operator",
+			},
+		},
+		Spec: ctfv1alpha1.ChallengeSpec{
+			ID: req.ID,
+			Scenario: ctfv1alpha1.ChallengeScenarioSpec{
+				Image:        req.Scenario,
+				Port:         8080, // Default port, can be overridden
+				ExposeType:   "NodePort",
+				FlagTemplate: flagTemplate,
+			},
+			Timeout: timeout,
+		},
+	}
+
+	if err := h.client.Create(ctx, challenge); err != nil {
+		log.Printf("Failed to create challenge %s: %v", req.ID, err)
+		h.writeError(w, http.StatusInternalServerError, "Failed to create challenge", err.Error())
+		return
+	}
+
+	log.Printf("Created challenge %s with scenario %s", req.ID, req.Scenario)
+	w.WriteHeader(http.StatusOK)
+	h.writeChallengeResponse(w, challenge)
+}
+
+// GetChallenge handles GET /api/v1/challenge/{challengeId}
+func (h *Handler) GetChallenge(w http.ResponseWriter, r *http.Request) {
+	challengeID := chi.URLParam(r, "challengeId")
+
+	if challengeID == "" {
+		h.writeError(w, http.StatusBadRequest, "Missing path parameter", "challengeId is required")
+		return
+	}
+
+	challenge := &ctfv1alpha1.Challenge{}
+	if err := h.client.Get(context.Background(), types.NamespacedName{
+		Name:      challengeID,
+		Namespace: h.namespace,
+	}, challenge); err != nil {
+		h.writeError(w, http.StatusNotFound, "Challenge not found", err.Error())
+		return
+	}
+
+	h.writeChallengeResponse(w, challenge)
+}
+
+// UpdateChallenge handles PATCH /api/v1/challenge/{challengeId}
+func (h *Handler) UpdateChallenge(w http.ResponseWriter, r *http.Request) {
+	challengeID := chi.URLParam(r, "challengeId")
+
+	if challengeID == "" {
+		h.writeError(w, http.StatusBadRequest, "Missing path parameter", "challengeId is required")
+		return
+	}
+
+	var req CreateChallengeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+
+	ctx := context.Background()
+
+	challenge := &ctfv1alpha1.Challenge{}
+	if err := h.client.Get(ctx, types.NamespacedName{
+		Name:      challengeID,
+		Namespace: h.namespace,
+	}, challenge); err != nil {
+		h.writeError(w, http.StatusNotFound, "Challenge not found", err.Error())
+		return
+	}
+
+	// Update fields if provided
+	if req.Scenario != "" {
+		challenge.Spec.Scenario.Image = req.Scenario
+	}
+	if req.Timeout > 0 {
+		challenge.Spec.Timeout = req.Timeout
+	}
+
+	if err := h.client.Update(ctx, challenge); err != nil {
+		h.writeError(w, http.StatusInternalServerError, "Failed to update challenge", err.Error())
+		return
+	}
+
+	log.Printf("Updated challenge %s", challengeID)
+	h.writeChallengeResponse(w, challenge)
+}
+
+// DeleteChallenge handles DELETE /api/v1/challenge/{challengeId}
+func (h *Handler) DeleteChallenge(w http.ResponseWriter, r *http.Request) {
+	challengeID := chi.URLParam(r, "challengeId")
+
+	if challengeID == "" {
+		h.writeError(w, http.StatusBadRequest, "Missing path parameter", "challengeId is required")
+		return
+	}
+
+	ctx := context.Background()
+
+	challenge := &ctfv1alpha1.Challenge{}
+	if err := h.client.Get(ctx, types.NamespacedName{
+		Name:      challengeID,
+		Namespace: h.namespace,
+	}, challenge); err != nil {
+		h.writeError(w, http.StatusNotFound, "Challenge not found", err.Error())
+		return
+	}
+
+	// Also delete all instances of this challenge
+	instanceList := &ctfv1alpha1.ChallengeInstanceList{}
+	if err := h.client.List(ctx, instanceList, client.InNamespace(h.namespace), client.MatchingLabels{
+		"ctf.io/challenge": challengeID,
+	}); err == nil {
+		for _, instance := range instanceList.Items {
+			if err := h.client.Delete(ctx, &instance); err != nil {
+				log.Printf("Failed to delete instance %s: %v", instance.Name, err)
+			}
+		}
+	}
+
+	if err := h.client.Delete(ctx, challenge); err != nil {
+		h.writeError(w, http.StatusInternalServerError, "Failed to delete challenge", err.Error())
+		return
+	}
+
+	log.Printf("Deleted challenge %s and its instances", challengeID)
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
+// ListChallenges handles GET /api/v1/challenge
+func (h *Handler) ListChallenges(w http.ResponseWriter, r *http.Request) {
+	challengeList := &ctfv1alpha1.ChallengeList{}
+	if err := h.client.List(context.Background(), challengeList, client.InNamespace(h.namespace)); err != nil {
+		h.writeError(w, http.StatusInternalServerError, "Failed to list challenges", err.Error())
+		return
+	}
+
+	// Stream response like chall-manager does
+	w.Header().Set("Content-Type", "application/json")
+	for _, challenge := range challengeList.Items {
+		resp := map[string]interface{}{
+			"result": ChallengeResponse{
+				ID:       challenge.Spec.ID,
+				Scenario: challenge.Spec.Scenario.Image,
+				Timeout:  challenge.Spec.Timeout,
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+// writeChallengeResponse writes a challenge response
+func (h *Handler) writeChallengeResponse(w http.ResponseWriter, challenge *ctfv1alpha1.Challenge) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ChallengeResponse{
+		ID:       challenge.Spec.ID,
+		Scenario: challenge.Spec.Scenario.Image,
+		Timeout:  challenge.Spec.Timeout,
+	})
+}
