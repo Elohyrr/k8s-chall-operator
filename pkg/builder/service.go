@@ -30,7 +30,7 @@ import (
 func BuildService(
 	instance *ctfv1alpha1.ChallengeInstance,
 	challenge *ctfv1alpha1.Challenge,
-	) *corev1.Service {
+) *corev1.Service {
 	labels := map[string]string{
 		"app":                          "challenge",
 		"ctf.io/challenge":             instance.Spec.ChallengeID,

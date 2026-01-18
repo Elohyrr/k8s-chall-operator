@@ -765,9 +765,11 @@ func (h *Handler) ListChallenges(w http.ResponseWriter, r *http.Request) {
 // writeChallengeResponse writes a challenge response
 func (h *Handler) writeChallengeResponse(w http.ResponseWriter, challenge *ctfv1alpha1.Challenge) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ChallengeResponse{
+	if err := json.NewEncoder(w).Encode(ChallengeResponse{
 		ID:       challenge.Spec.ID,
 		Scenario: challenge.Spec.Scenario.Image,
 		Timeout:  challenge.Spec.Timeout,
-	})
+	}); err != nil {
+		log.Printf("handlers: encode challenge response: %v", err)
+	}
 }
