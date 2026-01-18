@@ -18,6 +18,8 @@ package builder
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"text/template"
 
 	networkingv1 "k8s.io/api/networking/v1"
@@ -26,8 +28,21 @@ import (
 	ctfv1alpha1 "github.com/leo/chall-operator/api/v1alpha1"
 )
 
-// DefaultHostTemplate is the default template for generating ingress hostnames
-const DefaultHostTemplate = "ctf.{{.InstanceName}}.{{.Username}}.{{.ChallengeID}}.devleo.local"
+// getDefaultHostTemplate returns the default host template from env or fallback
+func getDefaultHostTemplate() string {
+	if template := os.Getenv("DEFAULT_HOST_TEMPLATE"); template != "" {
+		return template
+	}
+	return "ctf.{{.InstanceName}}.{{.Username}}.{{.ChallengeID}}.devleo.local"
+}
+
+// getAuthURL returns the auth URL from env or fallback
+func getAuthURL() string {
+	if authURL := os.Getenv("AUTH_URL"); authURL != "" {
+		return authURL
+	}
+	return "auth.devleo.local"
+}
 
 // HostContext contains variables available for host template rendering
 type HostContext struct {
@@ -48,7 +63,7 @@ func BuildIngress(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha
 	username := SanitizeForLabel(instance.Spec.SourceID)
 
 	// Generate hostname from template
-	hostTemplate := DefaultHostTemplate
+	hostTemplate := getDefaultHostTemplate()
 	if challenge.Spec.Scenario.Ingress.HostTemplate != "" {
 		hostTemplate = challenge.Spec.Scenario.Ingress.HostTemplate
 	}
@@ -70,11 +85,12 @@ func BuildIngress(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha
 	}
 
 	// Default OAuth2 annotations for CTF authentication
+	authURL := getAuthURL()
 	defaultAnnotations := map[string]string{
 		"nginx.ingress.kubernetes.io/rewrite-target":          "/",
 		"nginx.ingress.kubernetes.io/ssl-redirect":            "false",
 		"nginx.ingress.kubernetes.io/auth-url":                "http://oauth2-proxy.keycloak.svc.cluster.local:4180/oauth2/auth",
-		"nginx.ingress.kubernetes.io/auth-signin":             "http://auth.devleo.local/oauth2/start?rd=$scheme://$host$request_uri",
+		"nginx.ingress.kubernetes.io/auth-signin":             fmt.Sprintf("http://%s/oauth2/start?rd=$scheme://$host$request_uri", authURL),
 		"nginx.ingress.kubernetes.io/auth-response-headers":   "X-Auth-Request-User,X-Auth-Request-Email,Authorization",
 		"nginx.ingress.kubernetes.io/proxy-buffer-size":       "16k",
 		"nginx.ingress.kubernetes.io/proxy-buffers-number":    "4",
@@ -182,7 +198,7 @@ func GetIngressHostname(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv
 		return ""
 	}
 
-	hostTemplate := DefaultHostTemplate
+	hostTemplate := getDefaultHostTemplate()
 	if challenge.Spec.Scenario.Ingress.HostTemplate != "" {
 		hostTemplate = challenge.Spec.Scenario.Ingress.HostTemplate
 	}

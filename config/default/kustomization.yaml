@@ -18,6 +18,7 @@ resources:
 - ../crd
 - ../rbac
 - ../manager
+- ../gateway
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
 # crd/kustomization.yaml
 #- ../webhook
@@ -32,6 +33,15 @@ resources:
 # Only CR(s) which requires webhooks and are applied on namespaces labeled with 'webhooks: enabled' will
 # be able to communicate with the Webhook Server.
 #- ../network-policy
+
+# ConfigMap for operator configuration
+configMapGenerator:
+- name: chall-operator-config
+  namespace: system
+  literals:
+  - BASE_DOMAIN=devleo.local
+  - AUTH_URL=auth.devleo.local
+  - DEFAULT_HOST_TEMPLATE=ctf.{{.InstanceName}}.{{.Username}}.{{.ChallengeID}}.devleo.local
 
 # Uncomment the patches line if you enable Metrics
 patches:

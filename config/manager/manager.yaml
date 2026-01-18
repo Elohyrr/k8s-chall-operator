@@ -66,6 +66,22 @@ spec:
         image: controller:latest
         imagePullPolicy: IfNotPresent
         name: manager
+        env:
+        - name: BASE_DOMAIN
+          valueFrom:
+            configMapKeyRef:
+              name: chall-operator-config
+              key: BASE_DOMAIN
+        - name: AUTH_URL
+          valueFrom:
+            configMapKeyRef:
+              name: chall-operator-config
+              key: AUTH_URL
+        - name: DEFAULT_HOST_TEMPLATE
+          valueFrom:
+            configMapKeyRef:
+              name: chall-operator-config
+              key: DEFAULT_HOST_TEMPLATE
         ports: []
         securityContext:
           readOnlyRootFilesystem: true
