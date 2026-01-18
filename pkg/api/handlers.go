@@ -499,6 +499,10 @@ func (f *FlexibleInt64) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
+	// Strip common duration suffixes (s, m, h, etc.)
+	s = strings.TrimSuffix(s, "s")
+	s = strings.TrimSuffix(s, "m")
+	s = strings.TrimSuffix(s, "h")
 	// Parse string to int
 	i, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
@@ -527,7 +531,8 @@ type ChallengeResponse struct {
 }
 
 // CreateChallenge handles POST /api/v1/challenge
-// Creates a Challenge CRD from CTFd plugin request
+// In GitOps mode: just verifies the Challenge CRD exists (doesn't create it)
+// The Challenge should be created manually via kubectl/ArgoCD
 func (h *Handler) CreateChallenge(w http.ResponseWriter, r *http.Request) {
 	var req CreateChallengeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -542,60 +547,24 @@ func (h *Handler) CreateChallenge(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 
-	// Check if challenge already exists
+	// GitOps mode: Challenge must already exist
 	existingChallenge := &ctfv1alpha1.Challenge{}
 	err := h.client.Get(ctx, types.NamespacedName{
 		Name:      req.ID,
 		Namespace: h.namespace,
 	}, existingChallenge)
 
-	if err == nil {
-		// Challenge already exists, return it
-		log.Printf("Challenge %s already exists", req.ID)
-		h.writeChallengeResponse(w, existingChallenge)
+	if err != nil {
+		// Challenge doesn't exist - in GitOps mode, this is an error
+		log.Printf("Challenge %s not found (GitOps mode: create it manually with kubectl)", req.ID)
+		h.writeError(w, http.StatusNotFound, "Challenge not found", fmt.Sprintf("Challenge %s must be created manually via kubectl/ArgoCD before creating it in CTFd", req.ID))
 		return
 	}
 
-	// Default timeout
-	timeout := int64(req.Timeout)
-	if timeout == 0 {
-		timeout = 600
-	}
-
-	// Default flag template
-	flagTemplate := `FLAG{{"{"}}{{.ChallengeID}}_{{.RandomString}}{{"}"}}`
-
-	// Create Challenge CRD
-	challenge := &ctfv1alpha1.Challenge{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      req.ID,
-			Namespace: h.namespace,
-			Labels: map[string]string{
-				"ctf.io/challenge":             req.ID,
-				"app.kubernetes.io/managed-by": "chall-operator",
-			},
-		},
-		Spec: ctfv1alpha1.ChallengeSpec{
-			ID: req.ID,
-			Scenario: ctfv1alpha1.ChallengeScenarioSpec{
-				Image:        req.Scenario,
-				Port:         8080, // Default port, can be overridden
-				ExposeType:   "NodePort",
-				FlagTemplate: flagTemplate,
-			},
-			Timeout: timeout,
-		},
-	}
-
-	if err := h.client.Create(ctx, challenge); err != nil {
-		log.Printf("Failed to create challenge %s: %v", req.ID, err)
-		h.writeError(w, http.StatusInternalServerError, "Failed to create challenge", err.Error())
-		return
-	}
-
-	log.Printf("Created challenge %s with scenario %s", req.ID, req.Scenario)
+	// Challenge exists, return it
+	log.Printf("Challenge %s found (GitOps mode)", req.ID)
 	w.WriteHeader(http.StatusOK)
-	h.writeChallengeResponse(w, challenge)
+	h.writeChallengeResponse(w, existingChallenge)
 }
 
 // GetChallenge handles GET /api/v1/challenge/{challengeId}
