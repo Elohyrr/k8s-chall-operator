@@ -366,7 +366,6 @@ func (r *ChallengeInstanceReconciler) checkAndUpdateReady(ctx context.Context, i
 					connInfo := builder.GetConnectionInfo(existingService, r.getNodeIP())
 					if connInfo != "" {
 						instance.Status.ConnectionInfo = connInfo
->>>>>>> 375a3d9 (fix: lint)
 					}
 				}
 			}
