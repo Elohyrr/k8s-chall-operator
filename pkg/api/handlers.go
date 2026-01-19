@@ -95,22 +95,32 @@ func (r *CreateInstanceRequest) GetSourceID() string {
 
 // InstanceResponse represents the response for instance operations
 type InstanceResponse struct {
-	ChallengeID    string   `json:"challenge_id"`
-	SourceID       string   `json:"source_id"`
-	ConnectionInfo string   `json:"connectionInfo"`
-	Flags          []string `json:"flags,omitempty"`
-	Flag           string   `json:"flag,omitempty"` // Deprecated but kept for compatibility
-	Since          string   `json:"since"`
-	Until          string   `json:"until,omitempty"`
+	ChallengeID    string   `json:"challenge_id" example:"101"`
+	SourceID       string   `json:"source_id" example:"user@example.com"`
+	ConnectionInfo string   `json:"connectionInfo" example:"http://ctf.instance.user.101.devleo.local"`
+	Flags          []string `json:"flags,omitempty" example:"FLAG{test}"`
+	Flag           string   `json:"flag,omitempty" example:"FLAG{test}"` // Deprecated but kept for compatibility
+	Since          string   `json:"since" example:"2024-01-15T10:30:00Z"`
+	Until          string   `json:"until,omitempty" example:"2024-01-15T12:30:00Z"`
 }
 
 // ErrorResponse represents an error response
 type ErrorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message,omitempty"`
+	Error   string `json:"error" example:"Instance not found"`
+	Message string `json:"message,omitempty" example:"challengeinstances.ctf.ctf.io \"chal-101-user\" not found"`
 }
 
-// CreateInstance handles POST /api/v1/instance
+// CreateInstance godoc
+// @Summary Create a new challenge instance
+// @Description Create a new ChallengeInstance for a user/team
+// @Tags instances
+// @Accept json
+// @Produce json
+// @Param body body CreateInstanceRequest true "Instance creation request"
+// @Success 201 {object} InstanceResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /instance [post]
 func (h *Handler) CreateInstance(w http.ResponseWriter, r *http.Request) {
 	var req CreateInstanceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -235,7 +245,17 @@ func (h *Handler) CreateInstance(w http.ResponseWriter, r *http.Request) {
 	h.writeInstanceResponse(w, readyInstance)
 }
 
-// GetInstance handles GET /api/v1/instance/{challengeId}/{sourceId}
+// GetInstance godoc
+// @Summary Get a challenge instance
+// @Description Get details of a specific ChallengeInstance
+// @Tags instances
+// @Produce json
+// @Param challengeId path string true "Challenge ID"
+// @Param sourceId path string true "Source ID (user/team identifier)"
+// @Success 200 {object} InstanceResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /instance/{challengeId}/{sourceId} [get]
 func (h *Handler) GetInstance(w http.ResponseWriter, r *http.Request) {
 	challengeID := chi.URLParam(r, "challengeId")
 	sourceID := chi.URLParam(r, "sourceId")
@@ -259,7 +279,17 @@ func (h *Handler) GetInstance(w http.ResponseWriter, r *http.Request) {
 	h.writeInstanceResponse(w, instance)
 }
 
-// DeleteInstance handles DELETE /api/v1/instance/{challengeId}/{sourceId}
+// DeleteInstance godoc
+// @Summary Delete a challenge instance
+// @Description Delete a specific ChallengeInstance
+// @Tags instances
+// @Produce json
+// @Param challengeId path string true "Challenge ID"
+// @Param sourceId path string true "Source ID (user/team identifier)"
+// @Success 204 "Instance deleted successfully"
+// @Failure 404 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /instance/{challengeId}/{sourceId} [delete]
 func (h *Handler) DeleteInstance(w http.ResponseWriter, r *http.Request) {
 	challengeID := chi.URLParam(r, "challengeId")
 	sourceID := chi.URLParam(r, "sourceId")
@@ -292,13 +322,24 @@ func (h *Handler) DeleteInstance(w http.ResponseWriter, r *http.Request) {
 	// Return success response for CTFd compatibility
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Instance deleted successfully",
-	})
+	}); err != nil {
+		log.Printf("handlers: encode response: %v", err)
+	}
 }
 
-// ListInstances handles GET /api/v1/instance (query by source_id or sourceId)
+// ListInstances godoc
+// @Summary List challenge instances
+// @Description List all ChallengeInstances, optionally filtered by source_id
+// @Tags instances
+// @Produce json
+// @Param source_id query string false "Filter by source ID"
+// @Param sourceId query string false "Filter by source ID (camelCase)"
+// @Success 200 {array} InstanceResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /instance [get]
 func (h *Handler) ListInstances(w http.ResponseWriter, r *http.Request) {
 	// Support both snake_case and camelCase query params
 	sourceID := r.URL.Query().Get("source_id")
@@ -331,9 +372,17 @@ func (h *Handler) ListInstances(w http.ResponseWriter, r *http.Request) {
 		result := map[string]interface{}{
 			"result": response,
 		}
-		data, _ := json.Marshal(result)
-		w.Write(data)
-		w.Write([]byte("\n"))
+		data, err := json.Marshal(result)
+		if err != nil {
+			log.Printf("handlers: marshal response: %v", err)
+			continue
+		}
+		if _, err := w.Write(data); err != nil {
+			log.Printf("handlers: write data: %v", err)
+		}
+		if _, err := w.Write([]byte("\n")); err != nil {
+			log.Printf("handlers: write newline: %v", err)
+		}
 	}
 }
 
@@ -401,10 +450,13 @@ func (h *Handler) ValidateFlag(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Flag validated for instance %s, marked for deletion", instanceName)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"valid":   true,
 		"message": "Flag correct! Instance will be cleaned up.",
-	})
+	}); err != nil {
+		log.Printf("handlers: encode responses: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
 }
 
 // RenewInstance handles POST /api/v1/instance/{challengeId}/{sourceId}/renew
@@ -458,23 +510,35 @@ func (h *Handler) RenewInstance(w http.ResponseWriter, r *http.Request) {
 // Health handles GET /health
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		log.Printf("handlers: encode responses: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // writeError writes an error response
-func (h *Handler) writeError(w http.ResponseWriter, status int, error, message string) {
+func (h *Handler) writeError(w http.ResponseWriter, status int, errStr, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(ErrorResponse{
-		Error:   error,
+	if err := json.NewEncoder(w).Encode(ErrorResponse{
+		Error:   errStr,
 		Message: message,
-	})
+	}); err != nil {
+		log.Printf("handlers: encode responses: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // writeInstanceResponse writes an instance response
 func (h *Handler) writeInstanceResponse(w http.ResponseWriter, instance *ctfv1alpha1.ChallengeInstance) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(h.buildInstanceResponse(instance))
+	if err := json.NewEncoder(w).Encode(h.buildInstanceResponse(instance)); err != nil {
+		log.Printf("handlers: encode responses: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // buildInstanceResponse creates an InstanceResponse from a ChallengeInstance
@@ -708,7 +772,9 @@ func (h *Handler) DeleteChallenge(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Deleted challenge %s and its instances", challengeID)
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "deleted"}); err != nil {
+		log.Printf("handlers: encode response: %v", err)
+	}
 }
 
 // ListChallenges handles GET /api/v1/challenge
@@ -729,16 +795,20 @@ func (h *Handler) ListChallenges(w http.ResponseWriter, r *http.Request) {
 				Timeout:  challenge.Spec.Timeout,
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Printf("handlers: encode challenge: %v", err)
+		}
 	}
 }
 
 // writeChallengeResponse writes a challenge response
 func (h *Handler) writeChallengeResponse(w http.ResponseWriter, challenge *ctfv1alpha1.Challenge) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ChallengeResponse{
+	if err := json.NewEncoder(w).Encode(ChallengeResponse{
 		ID:       challenge.Spec.ID,
 		Scenario: challenge.Spec.Scenario.Image,
 		Timeout:  challenge.Spec.Timeout,
-	})
+	}); err != nil {
+		log.Printf("handlers: encode challenge response: %v", err)
+	}
 }

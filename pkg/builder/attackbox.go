@@ -30,7 +30,10 @@ import (
 
 // BuildAttackBoxDeployment creates a Deployment for the AttackBox (web terminal)
 // The AttackBox includes an auth-proxy sidecar and the ttyd terminal container
-func BuildAttackBoxDeployment(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) *appsv1.Deployment {
+func BuildAttackBoxDeployment(
+	instance *ctfv1alpha1.ChallengeInstance,
+	challenge *ctfv1alpha1.Challenge,
+) *appsv1.Deployment {
 	if challenge.Spec.Scenario.AttackBox == nil || !challenge.Spec.Scenario.AttackBox.Enabled {
 		return nil
 	}
@@ -176,7 +179,10 @@ func BuildAttackBoxDeployment(instance *ctfv1alpha1.ChallengeInstance, challenge
 }
 
 // BuildAttackBoxService creates a Service for the AttackBox
-func BuildAttackBoxService(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) *corev1.Service {
+func BuildAttackBoxService(
+	instance *ctfv1alpha1.ChallengeInstance,
+	challenge *ctfv1alpha1.Challenge,
+) *corev1.Service {
 	if challenge.Spec.Scenario.AttackBox == nil || !challenge.Spec.Scenario.AttackBox.Enabled {
 		return nil
 	}

@@ -36,7 +36,9 @@ var (
 	// - CERT_MANAGER_INSTALL_SKIP=true: Skips CertManager installation during test setup.
 	// These variables are useful if CertManager is already installed, avoiding
 	// re-installation and conflicts.
-	skipCertManagerInstall = os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true"
+	// NOTE: CertManager is not required for this operator as webhooks are not enabled.
+	// Defaulting to skip installation to speed up tests.
+	skipCertManagerInstall = os.Getenv("CERT_MANAGER_INSTALL_SKIP") != "false"
 	// isCertManagerAlreadyInstalled will be set true when CertManager CRDs be found on the cluster
 	isCertManagerAlreadyInstalled = false
 

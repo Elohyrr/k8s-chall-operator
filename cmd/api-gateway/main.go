@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	httpSwagger "github.com/swaggo/http-swagger"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -30,8 +31,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	ctfv1alpha1 "github.com/leo/chall-operator/api/v1alpha1"
+	_ "github.com/leo/chall-operator/docs" // Import generated docs
 	"github.com/leo/chall-operator/pkg/api"
 )
+
+// @title CTF Challenge Operator API Gateway
+// @version 1.0
+// @description API Gateway for managing CTF challenges and instances via Kubernetes CRDs
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name API Support
+// @contact.url https://github.com/Elohyrr/k8s-chall-operator
+// @contact.email your-email@example.com
+
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host localhost:8080
+// @BasePath /api/v1
+// @schemes http https
 
 var scheme = runtime.NewScheme()
 
@@ -64,6 +82,11 @@ func main() {
 	r.Get("/health", handler.Health)
 	r.Get("/healthz", handler.Health)
 	r.Get("/healthcheck", handler.Health)
+
+	// Swagger documentation
+	r.Get("/swagger/*", httpSwagger.Handler(
+		httpSwagger.URL("/swagger/doc.json"),
+	))
 
 	// CTFd-compatible API endpoints
 	r.Route("/api/v1", func(r chi.Router) {

@@ -57,6 +57,16 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
+.PHONY: swagger
+swagger: ## Generate OpenAPI/Swagger documentation
+	@command -v $(GOBIN)/swag >/dev/null 2>&1 || { \
+		echo "Installing swag..."; \
+		go install github.com/swaggo/swag/cmd/swag@latest; \
+	}
+	$(GOBIN)/swag init -g cmd/api-gateway/main.go -o docs --parseDependency --parseInternal
+	cp docs/swagger.json openapi.json
+	@echo "OpenAPI documentation generated: openapi.json and docs/"
+
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out

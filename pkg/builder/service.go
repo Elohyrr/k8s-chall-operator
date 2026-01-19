@@ -27,7 +27,10 @@ import (
 )
 
 // BuildService creates a Service for a ChallengeInstance based on the Challenge template
-func BuildService(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha1.Challenge) *corev1.Service {
+func BuildService(
+	instance *ctfv1alpha1.ChallengeInstance,
+	challenge *ctfv1alpha1.Challenge,
+) *corev1.Service {
 	labels := map[string]string{
 		"app":                          "challenge",
 		"ctf.io/challenge":             instance.Spec.ChallengeID,
@@ -40,9 +43,10 @@ func BuildService(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha
 
 	// Determine service type based on challenge config
 	serviceType := corev1.ServiceTypeNodePort
-	if challenge.Spec.Scenario.ExposeType == "LoadBalancer" {
+	switch challenge.Spec.Scenario.ExposeType {
+	case "LoadBalancer":
 		serviceType = corev1.ServiceTypeLoadBalancer
-	} else if challenge.Spec.Scenario.ExposeType == "Ingress" {
+	case "Ingress":
 		serviceType = corev1.ServiceTypeClusterIP
 	}
 
