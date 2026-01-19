@@ -59,11 +59,11 @@ vet: ## Run go vet against code.
 
 .PHONY: swagger
 swagger: ## Generate OpenAPI/Swagger documentation
-	@command -v swag >/dev/null 2>&1 || { \
+	@command -v $(GOBIN)/swag >/dev/null 2>&1 || { \
 		echo "Installing swag..."; \
 		go install github.com/swaggo/swag/cmd/swag@latest; \
 	}
-	swag init -g cmd/api-gateway/main.go -o docs --parseDependency --parseInternal
+	$(GOBIN)/swag init -g cmd/api-gateway/main.go -o docs --parseDependency --parseInternal
 	cp docs/swagger.json openapi.json
 	@echo "OpenAPI documentation generated: openapi.json and docs/"
 

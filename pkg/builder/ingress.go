@@ -73,16 +73,24 @@ func BuildIngress(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha
 
 	// Default OAuth2 annotations for CTF authentication
 	authURL := getAuthURL()
-	authSignin := fmt.Sprintf("http://%s/oauth2/start?rd=$scheme://$host$request_uri", authURL)
 	defaultAnnotations := map[string]string{
-		"nginx.ingress.kubernetes.io/rewrite-target":          "/",
 		"nginx.ingress.kubernetes.io/ssl-redirect":            "false",
-		"nginx.ingress.kubernetes.io/auth-url":                authURL,
-		"nginx.ingress.kubernetes.io/auth-signin":             authSignin,
+		"nginx.ingress.kubernetes.io/auth-url":                "http://oauth2-proxy.keycloak.svc.cluster.local:4180/oauth2/auth",
+		"nginx.ingress.kubernetes.io/auth-signin":             fmt.Sprintf("http://%s/oauth2/start?rd=$scheme://$host$request_uri", authURL),
 		"nginx.ingress.kubernetes.io/auth-response-headers":   "X-Auth-Request-User,X-Auth-Request-Email,Authorization",
 		"nginx.ingress.kubernetes.io/proxy-buffer-size":       "16k",
 		"nginx.ingress.kubernetes.io/proxy-buffers-number":    "4",
 		"nginx.ingress.kubernetes.io/proxy-busy-buffers-size": "24k",
+	}
+
+	// Add websocket support if attackbox is enabled
+	if challenge.Spec.Scenario.AttackBox != nil && challenge.Spec.Scenario.AttackBox.Enabled {
+		defaultAnnotations["nginx.ingress.kubernetes.io/proxy-read-timeout"] = "3600"
+		defaultAnnotations["nginx.ingress.kubernetes.io/proxy-send-timeout"] = "3600"
+		defaultAnnotations["nginx.ingress.kubernetes.io/websocket-services"] = AttackBoxServiceName(instance)
+		// Use regex paths with rewrite to strip /terminal prefix for attackbox
+		defaultAnnotations["nginx.ingress.kubernetes.io/use-regex"] = "true"
+		defaultAnnotations["nginx.ingress.kubernetes.io/rewrite-target"] = "/$2"
 	}
 
 	// Merge default annotations
@@ -103,28 +111,17 @@ func BuildIngress(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha
 	}
 
 	// Build paths
-	pathType := networkingv1.PathTypePrefix
-	paths := []networkingv1.HTTPIngressPath{
-		// Challenge path (/)
-		{
-			Path:     "/",
-			PathType: &pathType,
-			Backend: networkingv1.IngressBackend{
-				Service: &networkingv1.IngressServiceBackend{
-					Name: ServiceName(instance),
-					Port: networkingv1.ServiceBackendPort{
-						Number: 80,
-					},
-				},
-			},
-		},
-	}
+	pathTypePrefix := networkingv1.PathTypePrefix
+	pathTypeImplementationSpecific := networkingv1.PathTypeImplementationSpecific
 
-	// Add attackbox path if enabled
+	var paths []networkingv1.HTTPIngressPath
+
+	// Add attackbox path if enabled (must come first for regex matching)
 	if challenge.Spec.Scenario.AttackBox != nil && challenge.Spec.Scenario.AttackBox.Enabled {
+		// Use regex to capture and rewrite /terminal/* to /*
 		paths = append(paths, networkingv1.HTTPIngressPath{
-			Path:     "/terminal",
-			PathType: &pathType,
+			Path:     "/terminal(/|$)(.*)",
+			PathType: &pathTypeImplementationSpecific,
 			Backend: networkingv1.IngressBackend{
 				Service: &networkingv1.IngressServiceBackend{
 					Name: AttackBoxServiceName(instance),
@@ -135,6 +132,20 @@ func BuildIngress(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha
 			},
 		})
 	}
+
+	// Challenge path (/) - catches everything else
+	paths = append(paths, networkingv1.HTTPIngressPath{
+		Path:     "/",
+		PathType: &pathTypePrefix,
+		Backend: networkingv1.IngressBackend{
+			Service: &networkingv1.IngressServiceBackend{
+				Name: ServiceName(instance),
+				Port: networkingv1.ServiceBackendPort{
+					Number: 80,
+				},
+			},
+		},
+	})
 
 	ingress := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
