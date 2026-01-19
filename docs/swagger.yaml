@@ -1,0 +1,191 @@
+basePath: /api/v1
+definitions:
+  pkg_api.CreateInstanceRequest:
+    properties:
+      additional:
+        additionalProperties:
+          type: string
+        type: object
+      challenge_id:
+        type: string
+      challengeId:
+        type: string
+      source_id:
+        type: string
+      sourceId:
+        type: string
+    type: object
+  pkg_api.ErrorResponse:
+    properties:
+      error:
+        example: Instance not found
+        type: string
+      message:
+        example: challengeinstances.ctf.ctf.io "chal-101-user" not found
+        type: string
+    type: object
+  pkg_api.InstanceResponse:
+    properties:
+      challenge_id:
+        example: "101"
+        type: string
+      connectionInfo:
+        example: http://ctf.instance.user.101.devleo.local
+        type: string
+      flag:
+        description: Deprecated but kept for compatibility
+        example: FLAG{test}
+        type: string
+      flags:
+        example:
+        - FLAG{test}
+        items:
+          type: string
+        type: array
+      since:
+        example: "2024-01-15T10:30:00Z"
+        type: string
+      source_id:
+        example: user@example.com
+        type: string
+      until:
+        example: "2024-01-15T12:30:00Z"
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: your-email@example.com
+    name: API Support
+    url: https://github.com/Elohyrr/k8s-chall-operator
+  description: API Gateway for managing CTF challenges and instances via Kubernetes
+    CRDs
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: CTF Challenge Operator API Gateway
+  version: "1.0"
+paths:
+  /instance:
+    get:
+      description: List all ChallengeInstances, optionally filtered by source_id
+      parameters:
+      - description: Filter by source ID
+        in: query
+        name: source_id
+        type: string
+      - description: Filter by source ID (camelCase)
+        in: query
+        name: sourceId
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/pkg_api.InstanceResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      summary: List challenge instances
+      tags:
+      - instances
+    post:
+      consumes:
+      - application/json
+      description: Create a new ChallengeInstance for a user/team
+      parameters:
+      - description: Instance creation request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/pkg_api.CreateInstanceRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/pkg_api.InstanceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      summary: Create a new challenge instance
+      tags:
+      - instances
+  /instance/{challengeId}/{sourceId}:
+    delete:
+      description: Delete a specific ChallengeInstance
+      parameters:
+      - description: Challenge ID
+        in: path
+        name: challengeId
+        required: true
+        type: string
+      - description: Source ID (user/team identifier)
+        in: path
+        name: sourceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Instance deleted successfully
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      summary: Delete a challenge instance
+      tags:
+      - instances
+    get:
+      description: Get details of a specific ChallengeInstance
+      parameters:
+      - description: Challenge ID
+        in: path
+        name: challengeId
+        required: true
+        type: string
+      - description: Source ID (user/team identifier)
+        in: path
+        name: sourceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_api.InstanceResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      summary: Get a challenge instance
+      tags:
+      - instances
+schemes:
+- http
+- https
+swagger: "2.0"
