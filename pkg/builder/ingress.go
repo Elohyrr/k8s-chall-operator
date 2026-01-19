@@ -73,11 +73,14 @@ func BuildIngress(instance *ctfv1alpha1.ChallengeInstance, challenge *ctfv1alpha
 
 	// Default OAuth2 annotations for CTF authentication
 	authURL := getAuthURL()
+	oauthURL := "http://oauth2-proxy.keycloak.svc.cluster.local:4180/oauth2/auth"
+	authSignin := fmt.Sprintf("http://%s/oauth2/start?rd=$scheme://$host$request_uri", authURL)
+	responseHeaders := "X-Auth-Request-User,X-Auth-Request-Email,Authorization"
 	defaultAnnotations := map[string]string{
 		"nginx.ingress.kubernetes.io/ssl-redirect":            "false",
-		"nginx.ingress.kubernetes.io/auth-url":                "http://oauth2-proxy.keycloak.svc.cluster.local:4180/oauth2/auth",
-		"nginx.ingress.kubernetes.io/auth-signin":             fmt.Sprintf("http://%s/oauth2/start?rd=$scheme://$host$request_uri", authURL),
-		"nginx.ingress.kubernetes.io/auth-response-headers":   "X-Auth-Request-User,X-Auth-Request-Email,Authorization",
+		"nginx.ingress.kubernetes.io/auth-url":                oauthURL,
+		"nginx.ingress.kubernetes.io/auth-signin":             authSignin,
+		"nginx.ingress.kubernetes.io/auth-response-headers":   responseHeaders,
 		"nginx.ingress.kubernetes.io/proxy-buffer-size":       "16k",
 		"nginx.ingress.kubernetes.io/proxy-buffers-number":    "4",
 		"nginx.ingress.kubernetes.io/proxy-busy-buffers-size": "24k",
